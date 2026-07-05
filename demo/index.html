@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Aurora Coffee — Demo</title>
+  <!-- The Inlay connector: replace data-site with your site key. -->
+  <script src="http://localhost:8787/inlay.js" data-site="REPLACE_WITH_SITE_KEY"></script>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; font: 17px/1.65 Georgia, serif; color: #2d2a26; background: #faf7f2; }
+    header { padding: 96px 24px 72px; text-align: center; background: #2d2a26; color: #faf7f2; }
+    header h1 { font-size: 44px; margin: 0 0 12px; }
+    header p { font-size: 20px; color: #cfc7ba; margin: 0; }
+    main { max-width: 720px; margin: 0 auto; padding: 48px 24px; }
+    section { margin-bottom: 56px; }
+    h2 { font-size: 28px; border-bottom: 2px solid #e5ddd0; padding-bottom: 8px; }
+    img { max-width: 100%; border-radius: 12px; display: block; }
+    footer { text-align: center; padding: 32px; color: #8a8377; font-size: 14px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1 data-inlay="hero-title">Aurora Coffee Roasters</h1>
+    <p data-inlay="hero-subtitle">Small-batch beans, roasted the morning you order.</p>
+  </header>
+  <main>
+    <section>
+      <h2 data-inlay="about-heading">Our story</h2>
+      <p data-inlay="about-body">
+        We started roasting in a garage in 2019 with one conviction: coffee is
+        produce, not pantry stock. Every bag we ship was green beans less than
+        48 hours ago.
+      </p>
+      <img data-inlay="about-image" src="https://images.unsplash.com/photo-1447933601403-0c6688de566e?w=1200&q=70" alt="Coffee beans being roasted" />
+    </section>
+    <section>
+      <h2 data-inlay="hours-heading">Visit us</h2>
+      <p data-inlay="hours-body">
+        Open Tuesday to Sunday, 7am — 3pm. 14 Lakeview Terrace. The cortado is
+        the move.
+      </p>
+    </section>
+  </main>
+  <footer>
+    <span data-inlay="footer-note">This entire page is editable with Inlay — click "Open editor" in the dashboard.</span>
+  </footer>
+</body>
+</html>

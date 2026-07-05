@@ -1,0 +1,8 @@
+bin/
+inlay-data/
+connector/node_modules/
+connector/dist/
+*.db
+*.db-wal
+*.db-shm
+.DS_Store

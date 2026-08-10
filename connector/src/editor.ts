@@ -170,7 +170,11 @@ export class Editor {
   // --- Attribute and style change handlers ---
 
   private handleAttrChange(selector: string, el: HTMLElement, key: string, value: string): void {
-    el.setAttribute(key, value);
+    if (value === "") {
+      el.removeAttribute(key);
+    } else {
+      el.setAttribute(key, value);
+    }
     this.patchDirty(selector, { attrs: { [key]: value } });
     this.scheduleSave();
   }

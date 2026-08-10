@@ -1,4 +1,4 @@
-// Inlay dashboard — a deliberately small vanilla-JS app, richly styled.
+// Weblay dashboard — a deliberately small vanilla-JS app, richly styled.
 // Views: setup, login, sites, site detail (tabbed: overview, pages, members,
 // settings). No framework, no build step — embedded in the binary.
 
@@ -173,7 +173,7 @@ function topnav(me, crumbs = []) {
   <header class="topnav">
     <div class="brand">
       <span class="mark">${ICON.logo}</span>
-      <a href="#" class="crumb-root">Inlay</a>
+      <a href="#" class="crumb-root">Weblay</a>
       ${crumbs.map((c) => `<span class="sep">/</span>${c.href ? `<a href="${c.href}" class="crumb-name">${esc(c.label)}</a>` : `<span class="crumb-name">${esc(c.label)}</span>`}`).join("")}
     </div>
     <div class="spacer"></div>
@@ -225,7 +225,7 @@ async function route() {
         <div class="auth-box">
           <div class="auth-brand"><span class="mark">${ICON.logo}</span></div>
           <div class="card"><div class="card-pad">
-            <div class="alert error show"><span>${ICON.alert}</span><span class="msg">Cannot reach the Inlay server: ${esc(err.message)}</span></div>
+            <div class="alert error show"><span>${ICON.alert}</span><span class="msg">Cannot reach the Weblay server: ${esc(err.message)}</span></div>
             <button class="btn btn-secondary block" onclick="location.reload()">Retry</button>
           </div></div>
         </div>
@@ -250,7 +250,7 @@ function authShell(inner) {
 
 function viewSetup() {
   render(h(authShell(`
-    <div class="auth-title"><h1>Create your account</h1><p>First run — set up the Inlay admin</p></div>
+    <div class="auth-title"><h1>Create your account</h1><p>First run — set up the Weblay admin</p></div>
     <div class="card"><div class="card-pad">
       ${alertBox()}
       <div class="field"><label for="name">Name</label><input id="name" autocomplete="name" placeholder="Ada Lovelace" /></div>
@@ -392,9 +392,9 @@ async function viewSite(me, siteID, tab = "overview") {
   } catch (err) { return showError(err); }
 
   const server = location.origin;
-  const snippet = `<script src="${server}/inlay.js" data-site="${site.siteKey}"></script>`;
+  const snippet = `<script src="${server}/weblay.js" data-site="${site.siteKey}"></script>`;
   const snippetHTML =
-    `&lt;<span class="tok-tag">script</span> <span class="tok-attr">src</span>=<span class="tok-str">"${esc(server)}/inlay.js"</span> <span class="tok-attr">data-site</span>=<span class="tok-str">"${esc(site.siteKey)}"</span>&gt;&lt;/<span class="tok-tag">script</span>&gt;`;
+    `&lt;<span class="tok-tag">script</span> <span class="tok-attr">src</span>=<span class="tok-str">"${esc(server)}/weblay.js"</span> <span class="tok-attr">data-site</span>=<span class="tok-str">"${esc(site.siteKey)}"</span>&gt;&lt;/<span class="tok-tag">script</span>&gt;`;
 
   const originsHTML = (site.origins || []).length
     ? (site.origins || []).map((o) => `
@@ -426,7 +426,7 @@ async function viewSite(me, siteID, tab = "overview") {
 
       <div class="section-title"><h2>Install</h2><span class="hint">Add to every page, ideally in &lt;head&gt;</span></div>
       <div class="card"><div class="card-pad">
-        <p class="muted" style="font-size:13px;margin-bottom:12px">Tag elements with <code>data-inlay="name"</code> for flash-free, rename-proof editing. Untagged text and images are editable too.</p>
+        <p class="muted" style="font-size:13px;margin-bottom:12px">Tag elements with <code>data-weblay="name"</code> for flash-free, rename-proof editing. Untagged text and images are editable too.</p>
         <div class="snippet">${snippetHTML}<button class="icon-btn copy" id="copy-snippet" aria-label="Copy install snippet">${ICON.copy}</button></div>
       </div></div>
     </section>`;
@@ -463,7 +463,7 @@ async function viewSite(me, siteID, tab = "overview") {
             <select id="member-role" style="width:auto;min-width:130px"><option value="editor">Editor</option><option value="owner">Owner</option></select>
             <button class="btn btn-secondary" id="add-member">${ICON.users} Add member</button>
           </div>
-          <p class="faint" style="font-size:12.5px;margin-top:10px">Members must already have an account on this Inlay server.</p>
+          <p class="faint" style="font-size:12.5px;margin-top:10px">Members must already have an account on this Weblay server.</p>
         </div>
       </div>
     </section>`;
@@ -517,7 +517,7 @@ async function viewSite(me, siteID, tab = "overview") {
         throw new Error(`${url.origin} is not in this site's allowed origins — add it first`);
       }
       const { token } = await api("POST", `/api/v1/sites/${siteID}/edit-token`, {});
-      window.open(`${url.href.split("#")[0]}#inlay=${token}`, "_blank");
+      window.open(`${url.href.split("#")[0]}#weblay=${token}`, "_blank");
       toast("Editor opened in a new tab", { type: "info" });
     } catch (err) { showError(err, "editor-err"); }
   });

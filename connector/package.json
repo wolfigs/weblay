@@ -1,20 +1,20 @@
 {
-  "name": "@wolfigs/inlay",
+  "name": "@wolfigs/weblay",
   "version": "0.1.0",
-  "description": "Inlay connector — visual in-place editing for any website with one script tag",
+  "description": "Weblay connector — visual in-place editing for any website with one script tag",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "https://github.com/wolfigs/inlay.git",
+    "url": "https://github.com/wolfigs/weblay.git",
     "directory": "connector"
   },
   "files": [
     "dist"
   ],
-  "main": "dist/inlay.js",
+  "main": "dist/weblay.js",
   "scripts": {
-    "build": "esbuild src/index.ts --bundle --minify --format=iife --target=es2020 --outfile=dist/inlay.js && npm run embed",
-    "embed": "mkdir -p ../web/connector && cp dist/inlay.js ../web/connector/inlay.js",
+    "build": "esbuild src/index.ts --bundle --minify --format=iife --target=es2020 --outfile=dist/weblay.js && npm run embed",
+    "embed": "mkdir -p ../web/connector && cp dist/weblay.js ../web/connector/weblay.js",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {

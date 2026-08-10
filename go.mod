@@ -1,4 +1,4 @@
-module github.com/wolfigs/inlay
+module github.com/wolfigs/weblay
 
 go 1.25.5
 

@@ -1,16 +1,16 @@
-# Self-hosting Inlay
+# Self-hosting Weblay
 
-Inlay is designed to be boring to operate: one process, one data directory,
+Weblay is designed to be boring to operate: one process, one data directory,
 no external services.
 
 ## Docker (recommended)
 
 ```bash
-docker run -d --name inlay \
+docker run -d --name weblay \
   -p 8787:8787 \
-  -v inlay-data:/data \
-  -e INLAY_BASE_URL=https://edit.example.com \
-  wolfigs/inlay
+  -v weblay-data:/data \
+  -e WEBLAY_BASE_URL=https://edit.example.com \
+  wolfigs/weblay
 ```
 
 ## Binary
@@ -18,20 +18,20 @@ docker run -d --name inlay \
 Download a release (or `make server`) and run:
 
 ```bash
-INLAY_BASE_URL=https://edit.example.com ./inlay serve -data /var/lib/inlay
+WEBLAY_BASE_URL=https://edit.example.com ./weblay serve -data /var/lib/weblay
 ```
 
 A systemd unit:
 
 ```ini
 [Unit]
-Description=Inlay
+Description=Weblay
 After=network.target
 
 [Service]
-User=inlay
-ExecStart=/usr/local/bin/inlay serve -data /var/lib/inlay
-Environment=INLAY_BASE_URL=https://edit.example.com
+User=weblay
+ExecStart=/usr/local/bin/weblay serve -data /var/lib/weblay
+Environment=WEBLAY_BASE_URL=https://edit.example.com
 Restart=on-failure
 
 [Install]
@@ -40,7 +40,7 @@ WantedBy=multi-user.target
 
 ## TLS
 
-Terminate TLS in front of Inlay. With Caddy this is two lines:
+Terminate TLS in front of Weblay. With Caddy this is two lines:
 
 ```
 edit.example.com {
@@ -48,7 +48,7 @@ edit.example.com {
 }
 ```
 
-Set `INLAY_BASE_URL=https://edit.example.com` so cookies are marked Secure and
+Set `WEBLAY_BASE_URL=https://edit.example.com` so cookies are marked Secure and
 upload URLs are absolute.
 
 ## Postgres
@@ -58,7 +58,7 @@ cached manifests, so database load is light. Switch to Postgres when you want
 managed backups or multiple replicas:
 
 ```bash
-inlay serve -dsn "postgres://user:pass@host:5432/inlay?sslmode=require"
+weblay serve -dsn "postgres://user:pass@host:5432/weblay?sslmode=require"
 ```
 
 The schema is created automatically on first boot.
@@ -67,11 +67,11 @@ The schema is created automatically on first boot.
 
 Everything lives in the data directory:
 
-- `inlay.db` — SQLite database (skip when using Postgres)
+- `weblay.db` — SQLite database (skip when using Postgres)
 - `uploads/` — images uploaded through the editor
 - `secret` — instance secret; keep it with the backup
 
-`sqlite3 inlay.db ".backup backup.db"` gives a consistent snapshot without
+`sqlite3 weblay.db ".backup backup.db"` gives a consistent snapshot without
 stopping the server.
 
 ## Caching / CDN

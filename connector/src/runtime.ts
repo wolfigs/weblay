@@ -1,19 +1,19 @@
 // Published-content runtime: fetch the page manifest once, apply overrides,
 // and never flash. This is the only code path visitors ever execute.
 
-import type { ElementContent, InlayConfig, Manifest } from "./types";
+import type { ElementContent, WeblayConfig, Manifest } from "./types";
 
-const HIDE_STYLE_ID = "inlay-antifouc";
+const HIDE_STYLE_ID = "weblay-antifouc";
 const REVEAL_TIMEOUT_MS = 400;
 
-// Hide only elements that opted in via data-inlay until overrides land;
+// Hide only elements that opted in via data-weblay until overrides land;
 // structural-selector overrides apply too late to hide safely, so they may
 // swap after paint — documented tradeoff, fixed by tagging elements.
 export function guardAgainstFlash(): void {
   if (document.getElementById(HIDE_STYLE_ID)) return;
   const style = document.createElement("style");
   style.id = HIDE_STYLE_ID;
-  style.textContent = "[data-inlay]{visibility:hidden !important}";
+  style.textContent = "[data-weblay]{visibility:hidden !important}";
   document.head.appendChild(style);
   setTimeout(reveal, REVEAL_TIMEOUT_MS); // failsafe: never hide content for long
 }
@@ -22,7 +22,7 @@ export function reveal(): void {
   document.getElementById(HIDE_STYLE_ID)?.remove();
 }
 
-export async function fetchManifest(cfg: InlayConfig): Promise<Manifest | null> {
+export async function fetchManifest(cfg: WeblayConfig): Promise<Manifest | null> {
   try {
     const url = `${cfg.server}/m/${cfg.siteKey}/manifest.json?path=${encodeURIComponent(cfg.path)}`;
     const res = await fetch(url);

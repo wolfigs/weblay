@@ -1,4 +1,4 @@
-// Package config holds runtime configuration for the Inlay server.
+// Package config holds runtime configuration for the Weblay server.
 package config
 
 import (

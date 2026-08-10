@@ -30,7 +30,7 @@ export class ImageHandles {
   constructor(onDone: (r: ResizeDone) => void) {
     this.onDone = onDone;
     this.host = document.createElement("div");
-    this.host.setAttribute("data-inlay-ui", "");
+    this.host.setAttribute("data-weblay-ui", "");
     this.shadow = this.host.attachShadow({ mode: "open" });
     this.buildOverlay();
     document.body.appendChild(this.host);

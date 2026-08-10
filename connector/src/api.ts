@@ -1,10 +1,10 @@
-// Edit-mode API client: bearer-token calls to the Inlay server.
+// Edit-mode API client: bearer-token calls to the Weblay server.
 
-import type { ElementContent, EditSession, InlayConfig } from "./types";
+import type { ElementContent, EditSession, WeblayConfig } from "./types";
 
 export class EditAPI {
   constructor(
-    private cfg: InlayConfig,
+    private cfg: WeblayConfig,
     private token: string,
   ) {}
 

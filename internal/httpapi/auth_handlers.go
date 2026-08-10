@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/wolfigs/inlay/internal/auth"
-	"github.com/wolfigs/inlay/internal/store"
+	"github.com/wolfigs/weblay/internal/auth"
+	"github.com/wolfigs/weblay/internal/store"
 )
 
 const (

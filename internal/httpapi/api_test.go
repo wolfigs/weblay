@@ -10,8 +10,8 @@ import (
 	"net/url"
 	"testing"
 
-	"github.com/wolfigs/inlay/internal/config"
-	"github.com/wolfigs/inlay/internal/store"
+	"github.com/wolfigs/weblay/internal/config"
+	"github.com/wolfigs/weblay/internal/store"
 )
 
 // harness spins up the full HTTP surface against a temp SQLite store.
@@ -23,7 +23,7 @@ type harness struct {
 
 func newHarness(t *testing.T) *harness {
 	t.Helper()
-	cfg, err := config.Load(config.Options{DataDir: t.TempDir(), BaseURL: "http://inlay.test"})
+	cfg, err := config.Load(config.Options{DataDir: t.TempDir(), BaseURL: "http://weblay.test"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -142,8 +142,8 @@ func TestFullEditorialFlow(t *testing.T) {
 	// Save a draft.
 	res, out = h.do("PUT", "/api/v1/edit/content", map[string]any{
 		"path":     "/about/",
-		"selector": `[data-inlay="hero"]`,
-		"content":  map[string]any{"text": "Welcome to Inlay"},
+		"selector": `[data-weblay="hero"]`,
+		"content":  map[string]any{"text": "Welcome to Weblay"},
 	}, auth...)
 	h.expect(res, 200, out)
 
@@ -181,7 +181,7 @@ func TestFullEditorialFlow(t *testing.T) {
 		t.Fatal(err)
 	}
 	resp.Body.Close()
-	if manifest.Elements[`[data-inlay="hero"]`].Text != "Welcome to Inlay" {
+	if manifest.Elements[`[data-weblay="hero"]`].Text != "Welcome to Weblay" {
 		t.Fatalf("manifest content = %+v", manifest)
 	}
 

@@ -10,9 +10,9 @@ export interface Manifest {
   elements: Record<string, ElementContent>;
 }
 
-export interface InlayConfig {
+export interface WeblayConfig {
   siteKey: string;
-  server: string; // origin of the Inlay server, no trailing slash
+  server: string; // origin of the Weblay server, no trailing slash
   path: string;   // normalized current page path
 }
 

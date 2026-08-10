@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wolfigs/inlay/internal/config"
+	"github.com/wolfigs/weblay/internal/config"
 )
 
 func testStore(t *testing.T) *Store {
@@ -141,7 +141,7 @@ func TestDraftPublishManifestFlow(t *testing.T) {
 		t.Fatalf("empty manifest: %+v, %v", m, err)
 	}
 
-	if err := s.UpsertDraft(ctx, page.ID, `[data-inlay="hero"]`, &ElementContent{Text: str("Hello")}, u.ID); err != nil {
+	if err := s.UpsertDraft(ctx, page.ID, `[data-weblay="hero"]`, &ElementContent{Text: str("Hello")}, u.ID); err != nil {
 		t.Fatal(err)
 	}
 	// Draft is not visible until published.
@@ -158,12 +158,12 @@ func TestDraftPublishManifestFlow(t *testing.T) {
 		t.Errorf("version = %d, want 1", rev.Version)
 	}
 	m, _ = s.PublishedManifest(ctx, page.ID)
-	if got := m.Elements[`[data-inlay="hero"]`]; got == nil || got.Text == nil || *got.Text != "Hello" {
+	if got := m.Elements[`[data-weblay="hero"]`]; got == nil || got.Text == nil || *got.Text != "Hello" {
 		t.Fatalf("published manifest missing content: %+v", m)
 	}
 
 	// Second edit + publish bumps version.
-	_ = s.UpsertDraft(ctx, page.ID, `[data-inlay="hero"]`, &ElementContent{Text: str("Updated")}, u.ID)
+	_ = s.UpsertDraft(ctx, page.ID, `[data-weblay="hero"]`, &ElementContent{Text: str("Updated")}, u.ID)
 	rev2, _ := s.PublishPage(ctx, page.ID, u.ID)
 	if rev2.Version != 2 {
 		t.Errorf("second publish version = %d, want 2", rev2.Version)
@@ -178,7 +178,7 @@ func TestDraftPublishManifestFlow(t *testing.T) {
 		t.Errorf("restored version = %d, want 3", restored.Version)
 	}
 	m, _ = s.PublishedManifest(ctx, page.ID)
-	if got := m.Elements[`[data-inlay="hero"]`]; got == nil || *got.Text != "Hello" {
+	if got := m.Elements[`[data-weblay="hero"]`]; got == nil || *got.Text != "Hello" {
 		t.Fatalf("restore did not bring back v1 content: %+v", m)
 	}
 }

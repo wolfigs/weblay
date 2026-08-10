@@ -1,10 +1,10 @@
-// Stable element addressing. Explicit `data-inlay` names win; otherwise a
+// Stable element addressing. Explicit `data-weblay` names win; otherwise a
 // structural path selector is computed. Paths use nth-of-type so unrelated
 // siblings (text nodes, other tags) don't shift the address.
 
 export function selectorFor(el: Element): string {
-  const name = el.getAttribute("data-inlay");
-  if (name) return `[data-inlay="${cssEscape(name)}"]`;
+  const name = el.getAttribute("data-weblay");
+  if (name) return `[data-weblay="${cssEscape(name)}"]`;
 
   const parts: string[] = [];
   let node: Element | null = el;

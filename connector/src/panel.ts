@@ -59,7 +59,7 @@ export class FloatingPanel {
 
   constructor() {
     this.host = document.createElement("div");
-    this.host.setAttribute("data-inlay-ui", "");
+    this.host.setAttribute("data-weblay-ui", "");
     this.shadow = this.host.attachShadow({ mode: "open" });
     this.buildShell();
     document.body.appendChild(this.host);

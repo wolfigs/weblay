@@ -13,17 +13,17 @@ WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-COPY --from=connector /src/web/connector/inlay.js web/connector/inlay.js
+COPY --from=connector /src/web/connector/weblay.js web/connector/weblay.js
 ARG VERSION=dev
-RUN CGO_ENABLED=0 go build -ldflags "-s -w -X main.version=${VERSION}" -o /inlay ./cmd/inlay
+RUN CGO_ENABLED=0 go build -ldflags "-s -w -X main.version=${VERSION}" -o /weblay ./cmd/weblay
 
 # --- Runtime ---
 FROM alpine:3.20
-RUN adduser -D -H inlay && apk add --no-cache ca-certificates
-USER inlay
+RUN adduser -D -H weblay && apk add --no-cache ca-certificates
+USER weblay
 VOLUME /data
 EXPOSE 8787
-ENV INLAY_DATA=/data
-ENTRYPOINT ["/usr/local/bin/inlay"]
+ENV WEBLAY_DATA=/data
+ENTRYPOINT ["/usr/local/bin/weblay"]
 CMD ["serve"]
-COPY --from=server /inlay /usr/local/bin/inlay
+COPY --from=server /weblay /usr/local/bin/weblay

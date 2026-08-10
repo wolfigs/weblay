@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/wolfigs/inlay/internal/store"
+	"github.com/wolfigs/weblay/internal/store"
 )
 
 func (s *Server) handleSitesList(w http.ResponseWriter, r *http.Request) {

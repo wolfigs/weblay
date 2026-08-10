@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/wolfigs/inlay/internal/store"
+	"github.com/wolfigs/weblay/internal/store"
 )
 
 // handleEditSession lets the connector verify its token and learn who's editing.

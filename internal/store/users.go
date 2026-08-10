@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-// User is an Inlay dashboard account.
+// User is an Weblay dashboard account.
 type User struct {
 	ID           string    `json:"id"`
 	Email        string    `json:"email"`

@@ -6,7 +6,7 @@ import { selectorFor } from "./selector";
 import { applyContent } from "./runtime";
 import { FloatingPanel } from "./panel";
 import { ImageHandles } from "./handles";
-import type { ElementContent, InlayConfig } from "./types";
+import type { ElementContent, WeblayConfig } from "./types";
 
 const TEXT_TAGS = new Set([
   "P", "H1", "H2", "H3", "H4", "H5", "H6", "SPAN", "A", "LI", "BLOCKQUOTE",
@@ -26,7 +26,7 @@ export class Editor {
   private panel!: FloatingPanel;
   private handles!: ImageHandles;
 
-  constructor(cfg: InlayConfig, token: string, private editorName: string) {
+  constructor(cfg: WeblayConfig, token: string, private editorName: string) {
     this.api = new EditAPI(cfg, token);
   }
 
@@ -58,14 +58,14 @@ export class Editor {
 
   private markEditable(): void {
     for (const el of Array.from(document.body.querySelectorAll<HTMLElement>("*"))) {
-      if (el.closest("[data-inlay-ui]")) continue;
+      if (el.closest("[data-weblay-ui]")) continue;
       if (el.tagName === "IMG") {
-        el.classList.add("inlay-editable", "inlay-img");
+        el.classList.add("weblay-editable", "weblay-img");
         el.addEventListener("click", this.onImageClick);
         continue;
       }
       if (TEXT_TAGS.has(el.tagName) && this.isTextLeaf(el)) {
-        el.classList.add("inlay-editable");
+        el.classList.add("weblay-editable");
         el.addEventListener("click", this.onTextClick);
       }
     }
@@ -88,7 +88,7 @@ export class Editor {
     this.textActive = el;
     this.originalText = el.textContent ?? "";
     el.setAttribute("contenteditable", "plaintext-only");
-    el.classList.add("inlay-editing");
+    el.classList.add("weblay-editing");
     el.focus();
     el.addEventListener("blur", this.onTextBlur, { once: true });
     el.addEventListener("keydown", this.onTextKeydown);
@@ -115,7 +115,7 @@ export class Editor {
   private onTextBlur = (e: Event): void => {
     const el = e.currentTarget as HTMLElement;
     el.removeAttribute("contenteditable");
-    el.classList.remove("inlay-editing");
+    el.classList.remove("weblay-editing");
     el.removeEventListener("keydown", this.onTextKeydown);
 
     const text = el.textContent ?? "";
@@ -137,7 +137,7 @@ export class Editor {
     this.deselect();
 
     this.selectedEl = img;
-    img.classList.add("inlay-selected");
+    img.classList.add("weblay-selected");
     this.handles.attach(img);
 
     const selector = selectorFor(img);
@@ -206,7 +206,7 @@ export class Editor {
       // onTextBlur fires synchronously on blur() and clears this.textActive
     }
     if (this.selectedEl) {
-      this.selectedEl.classList.remove("inlay-selected");
+      this.selectedEl.classList.remove("weblay-selected");
       this.selectedEl = null;
     }
     this.handles.detach();
@@ -216,8 +216,8 @@ export class Editor {
   private onDocClick = (e: MouseEvent): void => {
     const el = e.target instanceof HTMLElement ? e.target : null;
     if (!el) return;
-    if (el.closest("[data-inlay-ui]")) return; // panel, handles, bar
-    if (el.classList.contains("inlay-editable")) return; // handled by specific listeners
+    if (el.closest("[data-weblay-ui]")) return; // panel, handles, bar
+    if (el.classList.contains("weblay-editable")) return; // handled by specific listeners
     this.deselect();
   };
 
@@ -270,7 +270,7 @@ export class Editor {
   }
 
   private exit(): void {
-    sessionStorage.removeItem("inlay:token");
+    sessionStorage.removeItem("weblay:token");
     location.reload();
   }
 
@@ -278,16 +278,16 @@ export class Editor {
 
   private injectStyles(): void {
     const style = document.createElement("style");
-    style.setAttribute("data-inlay-ui", "");
+    style.setAttribute("data-weblay-ui", "");
     style.textContent = `
-      .inlay-editable {
+      .weblay-editable {
         outline: 1.5px dashed rgba(99,102,241,0);
         outline-offset: 2px; transition: outline-color .15s; cursor: pointer;
       }
-      .inlay-editable:hover { outline-color: rgba(99,102,241,.8); }
-      .inlay-editing { outline: 2px solid rgb(99,102,241) !important; cursor: text; }
-      .inlay-selected { outline: 2px solid #6366f1 !important; outline-offset: 2px; }
-      .inlay-img:hover { filter: brightness(.85); }
+      .weblay-editable:hover { outline-color: rgba(99,102,241,.8); }
+      .weblay-editing { outline: 2px solid rgb(99,102,241) !important; cursor: text; }
+      .weblay-selected { outline: 2px solid #6366f1 !important; outline-offset: 2px; }
+      .weblay-img:hover { filter: brightness(.85); }
       body { margin-bottom: 64px !important; }
     `;
     document.head.appendChild(style);
@@ -295,7 +295,7 @@ export class Editor {
 
   private buildBar(): void {
     const host = document.createElement("div");
-    host.setAttribute("data-inlay-ui", "");
+    host.setAttribute("data-weblay-ui", "");
     const shadow = host.attachShadow({ mode: "open" });
     shadow.innerHTML = `
       <style>
@@ -324,7 +324,7 @@ export class Editor {
         .toast.show { opacity: 1; }
       </style>
       <div class="bar">
-        <span class="brand">INLAY</span>
+        <span class="brand">WEBLAY</span>
         <span class="who">Editing as ${escapeHTML(this.editorName)} — click any text or image</span>
         <span class="status" id="status"></span>
         <button class="publish" id="publish">Publish</button>

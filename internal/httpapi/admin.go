@@ -4,10 +4,10 @@ import (
 	"io/fs"
 	"net/http"
 
-	"github.com/wolfigs/inlay/web"
+	"github.com/wolfigs/weblay/web"
 )
 
-// mountAdmin serves the embedded dashboard at / and the connector at /inlay.js.
+// mountAdmin serves the embedded dashboard at / and the connector at /weblay.js.
 func (s *Server) mountAdmin(mux *http.ServeMux) {
 	adminFS, err := fs.Sub(web.Admin, "admin")
 	if err != nil {
@@ -15,10 +15,10 @@ func (s *Server) mountAdmin(mux *http.ServeMux) {
 	}
 	fileServer := http.FileServer(http.FS(adminFS))
 
-	mux.HandleFunc("GET /inlay.js", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /weblay.js", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Cache-Control", "public, max-age=300, stale-while-revalidate=3600")
-		http.ServeFileFS(w, r, web.Connector, "connector/inlay.js")
+		http.ServeFileFS(w, r, web.Connector, "connector/weblay.js")
 	})
 
 	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {

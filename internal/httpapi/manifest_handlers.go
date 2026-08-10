@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/wolfigs/inlay/internal/store"
+	"github.com/wolfigs/weblay/internal/store"
 )
 
 // handleManifest serves the published content for one page. This is the hot

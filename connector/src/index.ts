@@ -1,9 +1,9 @@
-// Inlay connector entry point.
+// Weblay connector entry point.
 //
-//   <script src="https://your-inlay-server/inlay.js" data-site="ilk_…"></script>
+//   <script src="https://your-weblay-server/weblay.js" data-site="ilk_…"></script>
 //
 // Visitors: fetch one manifest, apply overrides, done. Editors arriving via
-// the dashboard's "Edit site" link (#inlay=TOKEN) get the visual editor.
+// the dashboard's "Edit site" link (#weblay=TOKEN) get the visual editor.
 
 import { Editor } from "./editor";
 import {
@@ -15,22 +15,22 @@ import {
   reveal,
 } from "./runtime";
 import { EditAPI } from "./api";
-import type { InlayConfig } from "./types";
+import type { WeblayConfig } from "./types";
 
-const TOKEN_KEY = "inlay:token";
+const TOKEN_KEY = "weblay:token";
 
 (() => {
   const script = document.currentScript as HTMLScriptElement | null;
   const siteKey = script?.getAttribute("data-site") ?? "";
   if (!siteKey) {
-    console.warn("[inlay] missing data-site attribute on script tag");
+    console.warn("[weblay] missing data-site attribute on script tag");
     return;
   }
   const server =
     script?.getAttribute("data-server")?.replace(/\/$/, "") ||
     new URL(script!.src).origin;
 
-  const cfg: InlayConfig = {
+  const cfg: WeblayConfig = {
     siteKey,
     server,
     path: normalizePath(location.pathname),
@@ -48,10 +48,10 @@ const TOKEN_KEY = "inlay:token";
   });
 })();
 
-async function maybeStartEditor(cfg: InlayConfig): Promise<void> {
-  // Token handoff: #inlay=TOKEN in the fragment (never sent to servers or
+async function maybeStartEditor(cfg: WeblayConfig): Promise<void> {
+  // Token handoff: #weblay=TOKEN in the fragment (never sent to servers or
   // logged); moved into sessionStorage so reloads keep the session.
-  const match = location.hash.match(/[#&]inlay=([a-f0-9]+)/);
+  const match = location.hash.match(/[#&]weblay=([a-f0-9]+)/);
   if (match) {
     sessionStorage.setItem(TOKEN_KEY, match[1]);
     history.replaceState(null, "", location.pathname + location.search);

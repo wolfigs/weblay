@@ -1,4 +1,4 @@
-// Package auth implements password hashing for Inlay accounts.
+// Package auth implements password hashing for Weblay accounts.
 package auth
 
 import (

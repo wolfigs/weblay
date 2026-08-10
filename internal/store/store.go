@@ -1,4 +1,4 @@
-// Package store is the persistence layer for Inlay. It speaks database/sql
+// Package store is the persistence layer for Weblay. It speaks database/sql
 // against SQLite (default, zero-config) or Postgres (via DSN).
 package store
 
@@ -14,7 +14,7 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"
 	_ "modernc.org/sqlite"
 
-	"github.com/wolfigs/inlay/internal/config"
+	"github.com/wolfigs/weblay/internal/config"
 )
 
 // ErrNotFound is returned when a requested row does not exist.
@@ -38,7 +38,7 @@ func Open(cfg *config.Config) (*Store, error) {
 		db, err = sql.Open("pgx", cfg.DSN)
 	} else {
 		kind = "sqlite"
-		path := filepath.Join(cfg.DataDir, "inlay.db")
+		path := filepath.Join(cfg.DataDir, "weblay.db")
 		db, err = sql.Open("sqlite", path+"?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(ON)")
 	}
 	if err != nil {

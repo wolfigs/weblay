@@ -25,7 +25,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: connector
-          path: web/connector/inlay.js
+          path: web/connector/weblay.js
 
   server:
     runs-on: ubuntu-latest
@@ -44,7 +44,7 @@ jobs:
       - name: Test
         run: go test -race ./...
       - name: Build
-        run: CGO_ENABLED=0 go build -o bin/inlay ./cmd/inlay
+        run: CGO_ENABLED=0 go build -o bin/weblay ./cmd/weblay
 
   docker:
     runs-on: ubuntu-latest
@@ -53,4 +53,4 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Build image
-        run: docker build -t wolfigs/inlay:ci .
+        run: docker build -t wolfigs/weblay:ci .

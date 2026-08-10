@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/wolfigs/inlay/internal/store"
+	"github.com/wolfigs/weblay/internal/store"
 )
 
 type ctxKey int
@@ -21,7 +21,7 @@ const (
 	ctxGrant
 )
 
-const sessionCookie = "inlay_session"
+const sessionCookie = "weblay_session"
 
 // securityHeaders applies baseline hardening to every response.
 func (s *Server) securityHeaders(next http.Handler) http.Handler {

@@ -12,5 +12,5 @@ var Admin embed.FS
 // Connector holds the built connector script (see connector/ for sources;
 // `make connector` regenerates it).
 //
-//go:embed connector/inlay.js
+//go:embed connector/weblay.js
 var Connector embed.FS

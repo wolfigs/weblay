@@ -1,4 +1,4 @@
-// Package httpapi wires the Inlay HTTP surface: dashboard API (cookie auth),
+// Package httpapi wires the Weblay HTTP surface: dashboard API (cookie auth),
 // edit-mode API (bearer tokens, CORS), public manifests, uploads, and the
 // embedded admin UI.
 package httpapi
@@ -9,8 +9,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/wolfigs/inlay/internal/config"
-	"github.com/wolfigs/inlay/internal/store"
+	"github.com/wolfigs/weblay/internal/config"
+	"github.com/wolfigs/weblay/internal/store"
 )
 
 // Server carries shared dependencies for all handlers.

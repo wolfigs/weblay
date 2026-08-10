@@ -1,10 +1,10 @@
-# Inlay
+# Weblay
 
 **Visual in-place editing for any website. One script tag. One binary. One database file.**
 
-Inlay lets anyone edit a live website by clicking on it — no CMS migration, no rebuild, no framework lock-in. Content changes are saved as drafts, published as versioned revisions, and served from a single cacheable manifest per page.
+Weblay lets anyone edit a live website by clicking on it — no CMS migration, no rebuild, no framework lock-in. Content changes are saved as drafts, published as versioned revisions, and served from a single cacheable manifest per page.
 
-*Prism builds it. Inlay lets anyone edit it.*
+*Prism builds it. Weblay lets anyone edit it.*
 
 ---
 
@@ -12,19 +12,19 @@ Inlay lets anyone edit a live website by clicking on it — no CMS migration, no
 
 ```
 ┌─────────────┐   1 script tag    ┌──────────────┐
-│  Your site   │ ────────────────▶ │ inlay.js      │  visitors: fetch one manifest,
+│  Your site   │ ────────────────▶ │ weblay.js      │  visitors: fetch one manifest,
 │  (any stack) │                   │ (~8 kB)       │  apply content, done
 └─────────────┘                   └──────┬───────┘
                                           │ editors: click text, type, publish
                                           ▼
                                    ┌──────────────┐
-                                   │ inlay server  │  single Go binary
+                                   │ weblay server  │  single Go binary
                                    │ SQLite/Postgres│ drafts → revisions → manifests
                                    └──────────────┘
 ```
 
 - **Visitors** never pay for the editor: the connector fetches one ETag-cached JSON manifest per page and applies published content before paint.
-- **Editors** open the page from the Inlay dashboard, click any text or image, edit in place, and hit Publish. Every publish is a versioned revision with one-click rollback.
+- **Editors** open the page from the Weblay dashboard, click any text or image, edit in place, and hit Publish. Every publish is a versioned revision with one-click rollback.
 - **Owners** self-host everything: `docker run` or a single binary, SQLite by default, Postgres when you grow.
 
 ## Quick start
@@ -32,9 +32,9 @@ Inlay lets anyone edit a live website by clicking on it — no CMS migration, no
 ### Run the server
 
 ```bash
-docker run -p 8787:8787 -v inlay-data:/data wolfigs/inlay
+docker run -p 8787:8787 -v weblay-data:/data wolfigs/weblay
 # or, from a release binary:
-inlay serve
+weblay serve
 ```
 
 Open `http://localhost:8787`, create the admin account, and add your site with its origin (e.g. `https://example.com`).
@@ -44,14 +44,14 @@ Open `http://localhost:8787`, create the admin account, and add your site with i
 Add the snippet from the dashboard to every page, ideally in `<head>`:
 
 ```html
-<script src="https://your-inlay-server/inlay.js" data-site="ilk_…"></script>
+<script src="https://your-weblay-server/weblay.js" data-site="ilk_…"></script>
 ```
 
 Optionally tag the elements you care about — named elements are rename-proof and flash-free:
 
 ```html
-<h1 data-inlay="hero-title">Welcome</h1>
-<img data-inlay="hero-image" src="/hero.jpg" alt="">
+<h1 data-weblay="hero-title">Welcome</h1>
+<img data-weblay="hero-image" src="/hero.jpg" alt="">
 ```
 
 Untagged text elements and images are editable too, addressed by a stable structural selector.
@@ -64,12 +64,12 @@ In the dashboard, open your site → **Open editor**. The page opens with the vi
 
 | Flag / env | Default | Meaning |
 |---|---|---|
-| `-addr` / `INLAY_ADDR` | `:8787` | Listen address |
-| `-data` / `INLAY_DATA` | `./inlay-data` | SQLite DB, uploads, instance secret |
-| `-dsn` / `INLAY_DSN` | *(empty)* | Postgres DSN; empty = SQLite |
-| `-base` / `INLAY_BASE_URL` | *(empty)* | Public URL, used for upload links and secure cookies |
+| `-addr` / `WEBLAY_ADDR` | `:8787` | Listen address |
+| `-data` / `WEBLAY_DATA` | `./weblay-data` | SQLite DB, uploads, instance secret |
+| `-dsn` / `WEBLAY_DSN` | *(empty)* | Postgres DSN; empty = SQLite |
+| `-base` / `WEBLAY_BASE_URL` | *(empty)* | Public URL, used for upload links and secure cookies |
 
-Put the server behind TLS (Caddy, nginx, or your platform) and set `INLAY_BASE_URL=https://…` in production.
+Put the server behind TLS (Caddy, nginx, or your platform) and set `WEBLAY_BASE_URL=https://…` in production.
 
 ## Design decisions
 
@@ -81,7 +81,7 @@ Put the server behind TLS (Caddy, nginx, or your platform) and set `INLAY_BASE_U
 ## Development
 
 ```bash
-make connector   # build inlay.js (needs Node 22)
+make connector   # build weblay.js (needs Node 22)
 make server      # build the binary
 make test        # Go tests + connector typecheck
 ```
@@ -89,7 +89,7 @@ make test        # Go tests + connector typecheck
 Repository layout:
 
 ```
-cmd/inlay/        CLI entry point
+cmd/weblay/        CLI entry point
 internal/         config, store (SQLite/Postgres), auth, HTTP API
 connector/        TypeScript connector + visual editor
 web/admin/        embedded dashboard SPA

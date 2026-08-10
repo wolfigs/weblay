@@ -194,7 +194,7 @@ func (s *Server) handleEditUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusCreated, map[string]string{
 		"id":  assetID,
-		"url": fmt.Sprintf("%s/a/%s/%s", s.cfg.BaseURL, assetID, safeName),
+		"url": fmt.Sprintf("%s/a/%s/%s", s.assetBase(r), assetID, safeName),
 	})
 }
 

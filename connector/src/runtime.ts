@@ -53,7 +53,11 @@ export function applyContent(selector: string, content: ElementContent): void {
   }
   if (content.attrs) {
     for (const [key, value] of Object.entries(content.attrs)) {
-      if (isSafeAttr(key, value)) el.setAttribute(key, value);
+      if (value === "") {
+        el.removeAttribute(key); // empty string = remove (e.g. clearing srcset)
+      } else if (isSafeAttr(key, value)) {
+        el.setAttribute(key, value);
+      }
     }
   }
   if (content.style && el instanceof HTMLElement) {

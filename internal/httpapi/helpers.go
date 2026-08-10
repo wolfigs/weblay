@@ -54,6 +54,21 @@ func normalizePath(p string) string {
 	return p
 }
 
+// assetBase returns the absolute base URL for constructing asset URLs.
+// When BaseURL is configured it is used directly; otherwise the URL is inferred
+// from the incoming request so that uploaded images are always absolute and
+// loadable from the user's site regardless of the server port.
+func (s *Server) assetBase(r *http.Request) string {
+	if s.cfg.BaseURL != "" {
+		return s.cfg.BaseURL
+	}
+	scheme := "http"
+	if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
+		scheme = "https"
+	}
+	return scheme + "://" + r.Host
+}
+
 // validOrigin accepts scheme://host[:port] with no path.
 func validOrigin(o string) bool {
 	u, err := url.Parse(o)

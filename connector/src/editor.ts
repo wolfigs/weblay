@@ -1,11 +1,11 @@
-// The visual editor. Injected only for authenticated editors: outlines
-// editable elements, makes text editable in place, swaps images via upload,
-// and drives the draft → publish flow. All UI lives in a Shadow DOM so site
-// styles and editor styles never collide.
+// Visual editor — text/attribute/spacing editing in place, image replacement
+// and resize. All editor chrome lives in Shadow DOM so site styles never interfere.
 
 import { EditAPI } from "./api";
 import { selectorFor } from "./selector";
 import { applyContent } from "./runtime";
+import { FloatingPanel } from "./panel";
+import { ImageHandles } from "./handles";
 import type { ElementContent, InlayConfig } from "./types";
 
 const TEXT_TAGS = new Set([
@@ -19,8 +19,11 @@ export class Editor {
   private saving = false;
   private status!: HTMLElement;
   private toastEl!: HTMLElement;
-  private active: HTMLElement | null = null;
+  private selectedEl: HTMLElement | null = null;
+  private textActive: HTMLElement | null = null;
   private originalText = "";
+  private panel!: FloatingPanel;
+  private handles!: ImageHandles;
 
   constructor(cfg: InlayConfig, token: string, private editorName: string) {
     this.api = new EditAPI(cfg, token);
@@ -29,12 +32,24 @@ export class Editor {
   async start(): Promise<void> {
     const drafts = await this.api.drafts();
     for (const [selector, content] of Object.entries(drafts.elements)) {
-      applyContent(selector, content); // show WIP over published content
+      applyContent(selector, content);
     }
+
+    this.panel = new FloatingPanel();
+    this.handles = new ImageHandles((size) => {
+      if (!this.selectedEl) return;
+      const sel = selectorFor(this.selectedEl);
+      this.patchDirty(sel, { style: { width: `${size.widthPx}px`, height: `${size.heightPx}px` } });
+      this.scheduleSave();
+    });
+
     this.injectStyles();
     this.buildBar();
     this.markEditable();
     this.setStatus("No unsaved changes");
+
+    // Capture-phase listener so we see all clicks before element handlers fire.
+    document.addEventListener("click", this.onDocClick, true);
   }
 
   // --- Element discovery ---
@@ -54,8 +69,6 @@ export class Editor {
     }
   }
 
-  // Editable text elements are "leaves": no element children, so setting
-  // textContent can't destroy nested markup.
   private isTextLeaf(el: HTMLElement): boolean {
     return el.children.length === 0 && (el.textContent ?? "").trim().length > 0;
   }
@@ -64,29 +77,36 @@ export class Editor {
 
   private onTextClick = (e: Event): void => {
     const el = e.currentTarget as HTMLElement;
-    if (el.isContentEditable) return;
     e.preventDefault();
     e.stopPropagation();
-    this.commitActive();
+    if (this.selectedEl === el && this.textActive === el) return;
+    this.deselect();
 
-    this.active = el;
+    this.selectedEl = el;
+    this.textActive = el;
     this.originalText = el.textContent ?? "";
     el.setAttribute("contenteditable", "plaintext-only");
     el.classList.add("inlay-editing");
     el.focus();
-
     el.addEventListener("blur", this.onTextBlur, { once: true });
     el.addEventListener("keydown", this.onTextKeydown);
+
+    const selector = selectorFor(el);
+    this.panel.show(el, this.dirty.get(selector) ?? {}, {
+      onAttr: (key, value) => this.handleAttrChange(selector, el, key, value),
+      onStyle: (prop, value) => this.handleStyleChange(selector, el, prop, value),
+      onUpload: () => { /* text elements don't have image upload */ },
+    });
   };
 
   private onTextKeydown = (e: KeyboardEvent): void => {
     if (e.key === "Escape") {
       e.preventDefault();
-      if (this.active) this.active.textContent = this.originalText;
-      this.active?.blur();
+      if (this.textActive) this.textActive.textContent = this.originalText;
+      this.textActive?.blur();
     } else if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      this.active?.blur();
+      this.textActive?.blur();
     }
   };
 
@@ -99,47 +119,98 @@ export class Editor {
     const text = el.textContent ?? "";
     if (text !== this.originalText) {
       const selector = selectorFor(el);
-      this.dirty.set(selector, { ...this.dirty.get(selector), text });
+      this.patchDirty(selector, { text });
       this.scheduleSave();
     }
-    this.active = null;
+    this.textActive = null;
   };
 
-  private commitActive(): void {
-    this.active?.blur();
-  }
-
-  // --- Image replacement ---
+  // --- Image selection & resize ---
 
   private onImageClick = (e: Event): void => {
     const img = e.currentTarget as HTMLImageElement;
     e.preventDefault();
     e.stopPropagation();
+    if (this.selectedEl === img) return;
+    this.deselect();
 
-    const input = document.createElement("input");
-    input.type = "file";
-    input.accept = "image/*";
-    input.onchange = async () => {
-      const file = input.files?.[0];
-      if (!file) return;
-      this.setStatus("Uploading image…");
-      try {
-        const { url } = await this.api.upload(file);
-        img.src = url;
-        img.removeAttribute("srcset"); // the replacement must actually show
-        const selector = selectorFor(img);
-        const prev = this.dirty.get(selector);
-        this.dirty.set(selector, {
-          ...prev,
-          attrs: { ...prev?.attrs, src: url, srcset: "" },
-        });
-        this.scheduleSave();
-      } catch (err) {
-        this.toast(`Upload failed: ${(err as Error).message}`, true);
-        this.setStatus("Upload failed");
-      }
-    };
-    input.click();
+    this.selectedEl = img;
+    img.classList.add("inlay-selected");
+    this.handles.attach(img);
+
+    const selector = selectorFor(img);
+    this.panel.show(
+      img,
+      this.dirty.get(selector) ?? {},
+      {
+        onAttr: (key, value) => this.handleAttrChange(selector, img, key, value),
+        onStyle: (prop, value) => this.handleStyleChange(selector, img, prop, value),
+        onUpload: (file) => void this.uploadAndReplace(img, selector, file),
+      },
+      true,
+    );
+  };
+
+  private async uploadAndReplace(img: HTMLImageElement, selector: string, file: File): Promise<void> {
+    this.setStatus("Uploading image…");
+    try {
+      const { url } = await this.api.upload(file);
+      img.src = url;
+      img.removeAttribute("srcset");
+      this.handleAttrChange(selector, img, "src", url);
+      this.handleAttrChange(selector, img, "srcset", "");
+    } catch (err) {
+      this.toast(`Upload failed: ${(err as Error).message}`, true);
+      this.setStatus("Upload failed");
+    }
+  }
+
+  // --- Attribute and style change handlers ---
+
+  private handleAttrChange(selector: string, el: HTMLElement, key: string, value: string): void {
+    el.setAttribute(key, value);
+    this.patchDirty(selector, { attrs: { [key]: value } });
+    this.scheduleSave();
+  }
+
+  private handleStyleChange(selector: string, el: HTMLElement, prop: string, value: string): void {
+    el.style.setProperty(prop, value);
+    this.patchDirty(selector, { style: { [prop]: value } });
+    this.scheduleSave();
+  }
+
+  private patchDirty(selector: string, patch: Partial<ElementContent>): void {
+    const prev = this.dirty.get(selector) ?? {};
+    this.dirty.set(selector, {
+      ...prev,
+      ...(patch.text !== undefined ? { text: patch.text } : {}),
+      ...(patch.html !== undefined ? { html: patch.html } : {}),
+      attrs: patch.attrs ? { ...(prev.attrs ?? {}), ...patch.attrs } : prev.attrs,
+      style: patch.style ? { ...(prev.style ?? {}), ...patch.style } : prev.style,
+    });
+  }
+
+  // --- Selection lifecycle ---
+
+  private deselect(): void {
+    if (this.textActive) {
+      this.textActive.blur();
+      // onTextBlur fires synchronously on blur() and clears this.textActive
+    }
+    if (this.selectedEl) {
+      this.selectedEl.classList.remove("inlay-selected");
+      this.selectedEl = null;
+    }
+    this.handles.detach();
+    this.panel.hide();
+  }
+
+  private onDocClick = (e: MouseEvent): void => {
+    const el = e.target instanceof HTMLElement ? e.target : null;
+    if (!el) return;
+    if (el.closest("[data-inlay-ui]")) return; // panel, handles, bar
+    if (el.classList.contains("inlay-editable")) return; // handled by specific listeners
+    this.deselect();
   };
 
   // --- Saving and publishing ---
@@ -172,7 +243,7 @@ export class Editor {
   }
 
   private async publish(): Promise<void> {
-    this.commitActive();
+    if (this.textActive) this.textActive.blur();
     await this.flush();
     if (this.dirty.size > 0) {
       this.toast("Fix the failed save before publishing", true);
@@ -200,9 +271,13 @@ export class Editor {
     const style = document.createElement("style");
     style.setAttribute("data-inlay-ui", "");
     style.textContent = `
-      .inlay-editable { outline: 1.5px dashed rgba(99,102,241,.0); outline-offset: 2px; transition: outline-color .15s; cursor: pointer; }
+      .inlay-editable {
+        outline: 1.5px dashed rgba(99,102,241,0);
+        outline-offset: 2px; transition: outline-color .15s; cursor: pointer;
+      }
       .inlay-editable:hover { outline-color: rgba(99,102,241,.8); }
       .inlay-editing { outline: 2px solid rgb(99,102,241) !important; cursor: text; }
+      .inlay-selected { outline: 2px solid #6366f1 !important; outline-offset: 2px; }
       .inlay-img:hover { filter: brightness(.85); }
       body { margin-bottom: 64px !important; }
     `;
@@ -225,9 +300,7 @@ export class Editor {
         .brand { font-weight: 700; letter-spacing: .04em; color: #a5b4fc; }
         .who { color: #9ca3af; }
         .status { flex: 1; text-align: right; color: #9ca3af; }
-        button {
-          font: inherit; border: 0; border-radius: 8px; padding: 8px 18px; cursor: pointer;
-        }
+        button { font: inherit; border: 0; border-radius: 8px; padding: 8px 18px; cursor: pointer; }
         .publish { background: #6366f1; color: #fff; font-weight: 600; }
         .publish:hover { background: #818cf8; }
         .exit { background: #1f2333; color: #d1d5db; }

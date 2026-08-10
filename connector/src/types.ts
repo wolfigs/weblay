@@ -2,6 +2,7 @@ export interface ElementContent {
   text?: string;
   html?: string;
   attrs?: Record<string, string>;
+  style?: Record<string, string>;
 }
 
 export interface Manifest {

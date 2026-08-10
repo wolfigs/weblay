@@ -13,6 +13,7 @@ type ElementContent struct {
 	Text  *string           `json:"text,omitempty"`
 	HTML  *string           `json:"html,omitempty"`
 	Attrs map[string]string `json:"attrs,omitempty"`
+	Style map[string]string `json:"style,omitempty"`
 }
 
 // Element is one editable region on a page, with draft and published state.

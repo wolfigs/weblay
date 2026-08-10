@@ -56,17 +56,45 @@ export function applyContent(selector: string, content: ElementContent): void {
       if (isSafeAttr(key, value)) el.setAttribute(key, value);
     }
   }
+  if (content.style && el instanceof HTMLElement) {
+    for (const [prop, value] of Object.entries(content.style)) {
+      if (isSafeCSSProp(prop) && isSafeCSSValue(value)) {
+        el.style.setProperty(prop, value);
+      }
+    }
+  }
 }
 
-// Attribute allowlist: enough for images, links, and accessibility, without
-// letting stored content register event handlers or run javascript: URLs.
-const ATTR_ALLOW = new Set(["src", "srcset", "alt", "title", "href", "target", "rel", "aria-label"]);
+// Attribute allowlist: enough for images, links, accessibility, and form hints,
+// without letting stored content register event handlers or run javascript: URLs.
+const ATTR_ALLOW = new Set([
+  "src", "srcset", "alt", "title", "href", "target", "rel",
+  "aria-label", "placeholder",
+]);
 
 function isSafeAttr(key: string, value: string): boolean {
   const k = key.toLowerCase();
   if (!ATTR_ALLOW.has(k)) return false;
   if ((k === "href" || k === "src") && /^\s*javascript:/i.test(value)) return false;
   return true;
+}
+
+// CSS property allowlist: layout-only properties that cannot run scripts or
+// load external resources in ways that could be exploited.
+const CSS_PROP_ALLOW = new Set([
+  "padding", "padding-top", "padding-right", "padding-bottom", "padding-left",
+  "margin", "margin-top", "margin-right", "margin-bottom", "margin-left",
+  "width", "height", "max-width", "max-height", "min-width", "min-height",
+  "object-fit", "object-position",
+]);
+
+function isSafeCSSProp(prop: string): boolean {
+  return CSS_PROP_ALLOW.has(prop.toLowerCase());
+}
+
+// Block values that could load resources or run code (url(), expression(), etc.).
+function isSafeCSSValue(value: string): boolean {
+  return !/url\s*\(|expression\s*\(|javascript\s*:|<|>/i.test(value);
 }
 
 export function normalizePath(p: string): string {

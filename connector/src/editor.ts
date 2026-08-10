@@ -16,6 +16,7 @@ const TEXT_TAGS = new Set([
 export class Editor {
   private api: EditAPI;
   private dirty = new Map<string, ElementContent>();
+  private committed = new Map<string, ElementContent>(); // mirrors last state saved to server
   private saving = false;
   private status!: HTMLElement;
   private toastEl!: HTMLElement;
@@ -32,6 +33,7 @@ export class Editor {
   async start(): Promise<void> {
     const drafts = await this.api.drafts();
     for (const [selector, content] of Object.entries(drafts.elements)) {
+      this.committed.set(selector, content);
       applyContent(selector, content);
     }
 
@@ -180,7 +182,9 @@ export class Editor {
   }
 
   private patchDirty(selector: string, patch: Partial<ElementContent>): void {
-    const prev = this.dirty.get(selector) ?? {};
+    // After flush() clears dirty, fall back to committed so previously-saved
+    // attrs (e.g. a replaced image src) aren't lost when adding new style changes.
+    const prev = this.dirty.get(selector) ?? this.committed.get(selector) ?? {};
     this.dirty.set(selector, {
       ...prev,
       ...(patch.text !== undefined ? { text: patch.text } : {}),
@@ -231,6 +235,7 @@ export class Editor {
     try {
       for (const [selector, content] of batch) {
         await this.api.saveDraft(selector, content);
+        this.committed.set(selector, content);
       }
       if (this.dirty.size === 0) this.setStatus("Draft saved");
     } catch (err) {

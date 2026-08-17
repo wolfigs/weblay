@@ -8,6 +8,15 @@ Already addressed: **loading-time delay** (instant, tag-configured loaders +
 manifest fetch timeout), and **multi-screen responsiveness** (true-viewport
 iframe device preview + per-breakpoint style buckets).
 
+**Shipped since (2026-08):** selector-drift detection; SEO/SSR (edge proxy,
+snapshot export, CDN-worker/Next.js/build-plugin examples); concurrent-edit
+conflict detection; SVG-upload sanitization; per-site rate limits + storage
+quota; account security (password reset, session revocation, email verification,
+TOTP 2FA, CSRF); versioned manifest URLs; approval workflow + preview links;
+Prometheus `/metrics`; versioned migrations + CI; connector unit tests +
+Playwright scaffold; and the **Wolfigs account platform** (super-admin/roles,
+admin panel with platform-wide website oversight). Remaining gaps below.
+
 ---
 
 ## Editing limitations (feature completeness)
@@ -21,13 +30,15 @@ overlaid**.
 - **Fix direction:** a **layers / DOM-tree panel** to select any element
   regardless of visibility, plus a "force-show hidden" toggle in edit mode.
 
-### Hover / focus states
+### Hover / focus states — OPEN
 Two distinct problems:
 1. *Selecting* a hover-only element (dropdown, tooltip) is impossible — it
    vanishes when the pointer moves to the toolbar. Needs a **"pin state"** control.
 2. *Styling* `:hover` / `:focus` / `:active` isn't supported at all — only the
    base state is editable. This mirrors the breakpoint media buckets: add
    **state buckets** that emit `selector:hover { … }`.
+(The layers / DOM-tree panel for selecting hidden elements — the sibling gap —
+already shipped in `connector/src/layers.ts`.)
 
 ### Structural editing
 Only existing elements can be edited. No add / remove / duplicate / reorder
@@ -38,12 +49,9 @@ most commonly requested capability.
 
 ## Tier 1 — will silently break in production
 
-- **Selector drift.** The override model hinges on `nth-of-type` CSS paths
-  staying stable across the customer's deploys. If they change markup, overrides
-  **silently break or mis-apply** — with no detection, no "orphaned override"
-  warning, and no GC. This is the existential risk of the override approach.
-  Needs: drift detection, a dashboard "N overrides no longer match" report, and
-  re-binding.
+- ~~**Selector drift.**~~ **DONE** — multi-signal descriptors + server-side
+  re-resolution, six-category classification, three detection channels, health
+  ladder, dashboard report, and re-bind/harden recovery.
 - **Assets on local disk.** Uploads are stored at a local filesystem
   `disk_path`. Now that the DB is remote, this is the glaring inconsistency: it
   **breaks with 2+ instances** (assets live on one node), isn't durable, has
@@ -58,57 +66,73 @@ most commonly requested capability.
   breadth, not correctness: package the same core as framework middleware and a
   CDN worker (see `seo.md`). Pure static with no server/CDN/build hook is still
   the one case that needs the snapshot export.
-- **Concurrent editing = last-write-wins.** Two editors on the same element
-  silently clobber each other. No locking, presence, or conflict detection.
+- ~~**Concurrent editing = last-write-wins.**~~ **DONE** — per-element `rev`
+  optimistic concurrency: a stale save gets HTTP 409 and the connector reloads
+  the winning edit instead of clobbering it. (Live presence/co-editing is still
+  future work, but silent data loss is fixed.)
 
 ## Tier 1 — security
 
-- **SVG uploads served same-origin.** `image/svg+xml` is allowed and served from
-  `/a/…`. SVGs can carry `<script>` → **stored XSS on the asset origin**.
-  Sanitize SVG, or serve assets from a separate sandboxed origin with
-  `Content-Disposition`.
-- **Rate limiting is in-memory and only on login/setup.** Per-instance (useless
-  behind a load balancer), and there's **nothing on upload or draft-save** →
-  abuse / DoS + no per-site storage quota.
-- **Account security gaps.** No password reset, no session-revocation UI, no
-  email verification, no 2FA. Verify **CSRF protection** on the cookie-authed
-  dashboard mutations, and that the edit token (URL-fragment → `sessionStorage`)
-  can't leak via history / extensions.
+- ~~**SVG uploads served same-origin.**~~ **DONE** — uploads run through
+  `sanitize.SVG` (rejects `<script>`/`on*`/`javascript:`/`foreignObject`/XXE)
+  and are served under a `sandbox` CSP.
+- ~~**Rate limiting is in-memory and only on login/setup.**~~ **DONE (single-node)** —
+  per-site draft-save + upload ceilings and a DB-backed per-site storage quota.
+  *Still per-instance* — a shared/distributed limiter is part of multi-instance
+  readiness below.
+- ~~**Account security gaps.**~~ **DONE** — password reset + email verification
+  (pluggable Mailer), active-session listing + revocation, TOTP 2FA with
+  recovery codes, and CSRF double-submit on all cookie-authed mutations.
 
 ## Tier 2 — completeness & operations
 
-- **Publish → cache staleness.** Manifests are cached
-  `max-age=30, stale-while-revalidate=300`; a just-published change can be stale
-  for ~30s+ with no purge. Add cache invalidation or versioned manifest URLs.
-- **Approval workflow + preview links.** Any editor can publish straight to
-  production with no review, and there's no way to share an unpublished draft
-  with a stakeholder without granting edit access.
-- **Multi-instance readiness.** In-memory rate limiter, local uploads, and no
-  shared cache all assume a single node.
-- **Observability.** Structured logs only — no metrics (request rate, manifest
-  latency, error rates), tracing, or alerting. Plus backups / PITR and a
-  **connector version-rollout strategy** (ship a `weblay.js` update without
-  breaking editors mid-session).
+- ~~**Publish → cache staleness.**~~ **DONE** — versioned immutable manifest
+  URLs (`?v=N`) + `X-Weblay-Version`; a stale version is served `no-cache` so
+  clients self-correct.
+- ~~**Approval workflow + preview links.**~~ **DONE** — editors submit for
+  review; owners/admins approve/reject+publish; signed, expiring preview links
+  serve a draft manifest without granting edit access.
+- **Multi-instance readiness — PARTIAL / OPEN.** DB-backed quota and versioned
+  manifests are shared-safe, but the **rate limiter is still in-memory** and
+  **uploads are local disk** (see object storage above). A shared cache/limiter
+  and object storage are what remain for true multi-node.
+- **Observability — PARTIAL.** Prometheus `/metrics` (request rate, latency
+  histogram, error rates by route) shipped. **Still open:** distributed
+  tracing, alerting, backups / PITR, and a **connector version-rollout
+  strategy** (ship a `weblay.js` update without breaking editors mid-session).
 
 ## Tier 3 — engineering hygiene
 
-- **The TypeScript connector has zero tests.** The sanitizer, `selectorFor`, and
-  editor logic are the riskiest code and are untested on the JS side. Add unit
-  tests (especially selector stability) + a Playwright E2E for the
-  edit → publish loop.
-- Versioned migrations (schema is idempotent `IF NOT EXISTS` — fine until a
-  breaking change), CI, and — if this becomes SaaS — orgs / teams, billing,
-  per-plan quotas, and i18n / locale-aware content.
+- ~~**The TypeScript connector has zero tests.**~~ **DONE (started)** — a
+  dependency-free esbuild test harness covers the API client (optimistic
+  concurrency), `parseThreshold`, and `normalizePath`; a Playwright E2E scaffold
+  exists (`e2e/`). *Still worth adding:* DOM-level `selectorFor`/sanitizer specs
+  and running the E2E in CI.
+- ~~Versioned migrations~~ **DONE** (`schema_migrations` runner) and CI updated.
+  **Still open — if this becomes SaaS:** orgs / teams, billing, per-plan quotas,
+  and i18n / locale-aware content.
 
 ---
 
-## Suggested priority order
+## Remaining work (priority order)
 
-1. **Selector-drift detection** — protects the core model from silent breakage.
-2. **Object storage for assets** — unblocks multi-instance + durability.
-3. **SVG / asset-serving XSS + real rate limiting** — closes the obvious holes.
-4. **Layers / tree panel** — unlocks hidden-element editing *and* is the
-   foundation for hover-state selection (two gaps, one feature).
-5. ~~**SEO / SSR story**~~ — **done**: `internal/ssr` core + `weblay-edge`
-   reverse proxy make content edits crawler-visible. Follow-ups (framework
-   middleware, CDN worker, snapshot export) are additive delivery modes.
+Most of the original list is done (see the "Shipped since" note at the top).
+What's genuinely left:
+
+1. **Object storage for assets (S3 + CDN)** — the last Tier-1 gap. Assets are on
+   local disk (`disk_path`), so uploads break with 2+ instances and aren't
+   durable. This is the main blocker for multi-instance.
+2. **Multi-instance readiness** — follows from #1, plus a shared/distributed
+   rate limiter (currently in-memory) and shared cache.
+3. **Observability remainder** — tracing, alerting, backups / PITR, and a
+   connector version-rollout strategy. (Metrics already ship.)
+4. **Editing feature-completeness** — hover/focus **state buckets** + a "pin
+   state" control, and **structural editing** (add / remove / duplicate /
+   reorder). The layers panel already ships.
+5. **SaaS layer (if pursued)** — orgs / teams, billing, per-plan quotas, i18n.
+
+Done and no longer on the list: selector drift, SEO/SSR (+ delivery modes),
+concurrent-edit safety, SVG XSS, rate limiting + quota, cache staleness,
+approval + preview links, account security (reset/revocation/verify/2FA/CSRF),
+metrics, versioned migrations + CI, connector tests, and the Wolfigs account
+platform (roles, admin panel, platform-wide site oversight).

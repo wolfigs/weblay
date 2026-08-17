@@ -1,0 +1,14 @@
+name = "weblay-edge"
+main = "worker.js"
+compatibility_date = "2024-11-01"
+
+# Point these at your Weblay server and site. WEBLAY_SITE_KEY can be a plain var
+# (it is public) or a secret via `wrangler secret put`.
+[vars]
+WEBLAY_SERVER = "https://api.weblay.app"
+WEBLAY_SITE_KEY = "sk_live_replace_me"
+
+# Route your zone's traffic through the worker:
+# [[routes]]
+# pattern = "example.com/*"
+# zone_name = "example.com"

@@ -18,7 +18,20 @@ func (s *Server) handleSitesList(w http.ResponseWriter, r *http.Request) {
 	if sites == nil {
 		sites = []*store.Site{}
 	}
-	writeJSON(w, http.StatusOK, sites)
+	// Attach per-site health-issue counts so the home cards can flag alerts.
+	ids := make([]string, len(sites))
+	for i, st := range sites {
+		ids[i] = st.ID
+	}
+	issues, _ := s.st.IssueCountsForSites(r.Context(), ids)
+	out := make([]map[string]any, len(sites))
+	for i, st := range sites {
+		out[i] = map[string]any{
+			"id": st.ID, "siteKey": st.SiteKey, "name": st.Name, "createdBy": st.CreatedBy,
+			"createdAt": st.CreatedAt, "origins": st.Origins, "issues": issues[st.ID],
+		}
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 func (s *Server) handleSiteCreate(w http.ResponseWriter, r *http.Request) {
@@ -180,6 +193,127 @@ func (s *Server) handleRevisionsList(w http.ResponseWriter, r *http.Request) {
 		revs = []*store.Revision{}
 	}
 	writeJSON(w, http.StatusOK, revs)
+}
+
+// pageInSite loads the {pageID} path value and confirms it belongs to the
+// granted site, writing a 404 and returning ok=false otherwise.
+func (s *Server) pageInSite(w http.ResponseWriter, r *http.Request) (*store.Page, bool) {
+	page, err := s.st.PageByID(r.Context(), r.PathValue("pageID"))
+	if errors.Is(err, store.ErrNotFound) || (err == nil && page.SiteID != siteFrom(r).ID) {
+		writeError(w, http.StatusNotFound, "page not found")
+		return nil, false
+	}
+	if err != nil {
+		s.internalError(w, err)
+		return nil, false
+	}
+	return page, true
+}
+
+// resetPage removes every override on a page and republishes, reverting it to
+// original markup live. Shared by the page + site reset handlers.
+func (s *Server) resetPage(r *http.Request, pageID, userID string) error {
+	elems, err := s.st.ElementsForPage(r.Context(), pageID)
+	if err != nil {
+		return err
+	}
+	for _, e := range elems {
+		if err := s.st.DeleteElement(r.Context(), pageID, e.Selector); err != nil {
+			return err
+		}
+	}
+	// Wipe ALL health rows for the page — including orphans left by telemetry or
+	// legacy seeds that no longer map to a live override — so reset truly clears
+	// the health board rather than leaving stale alarms behind.
+	_ = s.st.DeleteBindingHealthForPage(r.Context(), pageID)
+	_, err = s.st.PublishPage(r.Context(), pageID, userID)
+	return err
+}
+
+// handlePageResetElement removes a single override on a page and republishes —
+// the dashboard's per-binding "Reset" action.
+func (s *Server) handlePageResetElement(w http.ResponseWriter, r *http.Request) {
+	page, ok := s.pageInSite(w, r)
+	if !ok {
+		return
+	}
+	var body struct {
+		Selector string `json:"selector"`
+	}
+	if !readJSON(w, r, &body) {
+		return
+	}
+	if body.Selector == "" {
+		writeError(w, http.StatusBadRequest, "selector required")
+		return
+	}
+	if err := s.st.DeleteElement(r.Context(), page.ID, body.Selector); err != nil {
+		s.internalError(w, err)
+		return
+	}
+	_ = s.st.DeleteBindingHealth(r.Context(), page.ID, body.Selector)
+	if _, err := s.st.PublishPage(r.Context(), page.ID, userFrom(r).ID); err != nil {
+		s.internalError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "reset"})
+}
+
+// handlePageReset reverts one page to its original (unedited) markup, live.
+func (s *Server) handlePageReset(w http.ResponseWriter, r *http.Request) {
+	page, ok := s.pageInSite(w, r)
+	if !ok {
+		return
+	}
+	if err := s.resetPage(r, page.ID, userFrom(r).ID); err != nil {
+		s.internalError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "reset"})
+}
+
+// handleSiteReset reverts every page of a site to original markup, live.
+func (s *Server) handleSiteReset(w http.ResponseWriter, r *http.Request) {
+	pages, err := s.st.PagesForSite(r.Context(), siteFrom(r).ID)
+	if err != nil {
+		s.internalError(w, err)
+		return
+	}
+	uid := userFrom(r).ID
+	for _, p := range pages {
+		if err := s.resetPage(r, p.ID, uid); err != nil {
+			s.internalError(w, err)
+			return
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"status": "reset", "pages": len(pages)})
+}
+
+// handlePagePublish publishes a page's current drafts as a new revision.
+func (s *Server) handlePagePublish(w http.ResponseWriter, r *http.Request) {
+	page, ok := s.pageInSite(w, r)
+	if !ok {
+		return
+	}
+	rev, err := s.st.PublishPage(r.Context(), page.ID, userFrom(r).ID)
+	if err != nil {
+		s.internalError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"version": rev.Version, "publishedAt": rev.PublishedAt})
+}
+
+// handlePageDiscard reverts a page's unpublished drafts back to published.
+func (s *Server) handlePageDiscard(w http.ResponseWriter, r *http.Request) {
+	page, ok := s.pageInSite(w, r)
+	if !ok {
+		return
+	}
+	if err := s.st.DiscardDrafts(r.Context(), page.ID); err != nil {
+		s.internalError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "discarded"})
 }
 
 func (s *Server) handleRevisionRestore(w http.ResponseWriter, r *http.Request) {

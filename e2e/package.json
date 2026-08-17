@@ -1,0 +1,13 @@
+{
+  "name": "weblay-e2e",
+  "private": true,
+  "description": "Playwright end-to-end tests for the Weblay dashboard + connector",
+  "scripts": {
+    "test": "playwright test",
+    "test:headed": "playwright test --headed",
+    "install-browsers": "playwright install chromium"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.48.0"
+  }
+}

@@ -26,7 +26,7 @@ type Revision struct {
 
 // PublishPage snapshots all drafts on a page into a new revision, promotes
 // drafts to published, and bumps the page's published version.
-func (s *Store) PublishPage(ctx context.Context, pageID, publishedBy string) (*Revision, error) {
+func (s *sqlStore) PublishPage(ctx context.Context, pageID, publishedBy string) (*Revision, error) {
 	elems, err := s.ElementsForPage(ctx, pageID)
 	if err != nil {
 		return nil, err
@@ -81,9 +81,34 @@ func (s *Store) PublishPage(ctx context.Context, pageID, publishedBy string) (*R
 	return rev, nil
 }
 
+// DiscardDrafts reverts all unpublished draft edits on a page back to its
+// published state: elements that were never published are removed, and the
+// rest have their draft reset to their published content. Published revisions
+// are untouched, so this cannot lose live content.
+func (s *sqlStore) DiscardDrafts(ctx context.Context, pageID string) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	// Drop elements that exist only as drafts (never published).
+	if _, err := tx.ExecContext(ctx, s.rebind(
+		`DELETE FROM elements WHERE page_id = ? AND (published_json = '{}' OR published_json = '' OR published_json IS NULL)`),
+		pageID); err != nil {
+		return err
+	}
+	// Revert remaining drafts to their published content.
+	if _, err := tx.ExecContext(ctx, s.rebind(
+		`UPDATE elements SET draft_json = published_json WHERE page_id = ?`), pageID); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 // PublishedManifest returns the latest published manifest for a page, or an
 // empty manifest when nothing has been published.
-func (s *Store) PublishedManifest(ctx context.Context, pageID string) (*Manifest, error) {
+func (s *sqlStore) PublishedManifest(ctx context.Context, pageID string) (*Manifest, error) {
 	var manifestJSON string
 	err := s.queryRow(ctx,
 		`SELECT r.manifest_json FROM revisions r JOIN pages p ON p.id = r.page_id
@@ -102,7 +127,7 @@ func (s *Store) PublishedManifest(ctx context.Context, pageID string) (*Manifest
 }
 
 // RevisionsForPage lists revisions newest-first, without manifests.
-func (s *Store) RevisionsForPage(ctx context.Context, pageID string) ([]*Revision, error) {
+func (s *sqlStore) RevisionsForPage(ctx context.Context, pageID string) ([]*Revision, error) {
 	rows, err := s.query(ctx,
 		`SELECT id, page_id, version, published_by, published_at
 		 FROM revisions WHERE page_id = ? ORDER BY version DESC`, pageID)
@@ -123,7 +148,7 @@ func (s *Store) RevisionsForPage(ctx context.Context, pageID string) ([]*Revisio
 }
 
 // RevisionByID fetches a revision including its manifest.
-func (s *Store) RevisionByID(ctx context.Context, id string) (*Revision, error) {
+func (s *sqlStore) RevisionByID(ctx context.Context, id string) (*Revision, error) {
 	var (
 		r            Revision
 		manifestJSON string
@@ -145,7 +170,18 @@ func (s *Store) RevisionByID(ctx context.Context, id string) (*Revision, error) 
 
 // RestoreRevision copies a past revision's content into drafts and publishes
 // it as a new version — rollback without rewriting history.
-func (s *Store) RestoreRevision(ctx context.Context, revisionID, userID string) (*Revision, error) {
+func (s *sqlStore) RestoreRevision(ctx context.Context, revisionID, userID string) (*Revision, error) {
+	rev, err := s.RestoreRevisionToDraft(ctx, revisionID, userID)
+	if err != nil {
+		return nil, err
+	}
+	return s.PublishPage(ctx, rev.PageID, userID)
+}
+
+// RestoreRevisionToDraft copies a past revision's content into the page's drafts
+// without publishing, so an editor can review or tweak it before going live.
+// Returns the source revision (with PageID) so callers can scope authorization.
+func (s *sqlStore) RestoreRevisionToDraft(ctx context.Context, revisionID, userID string) (*Revision, error) {
 	rev, err := s.RevisionByID(ctx, revisionID)
 	if err != nil {
 		return nil, err
@@ -155,5 +191,5 @@ func (s *Store) RestoreRevision(ctx context.Context, revisionID, userID string) 
 			return nil, err
 		}
 	}
-	return s.PublishPage(ctx, rev.PageID, userID)
+	return rev, nil
 }

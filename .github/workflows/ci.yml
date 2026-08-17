@@ -19,6 +19,9 @@ jobs:
       - name: Typecheck
         working-directory: connector
         run: npm run typecheck
+      - name: Unit tests
+        working-directory: connector
+        run: npm test
       - name: Build
         working-directory: connector
         run: npm run build
@@ -34,7 +37,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.23"
+          go-version: "1.26"
+          cache: true
       - uses: actions/download-artifact@v4
         with:
           name: connector
@@ -43,8 +47,8 @@ jobs:
         run: go vet ./...
       - name: Test
         run: go test -race ./...
-      - name: Build
-        run: CGO_ENABLED=0 go build -o bin/weblay ./cmd/weblay
+      - name: Build (all binaries)
+        run: CGO_ENABLED=0 go build ./...
 
   docker:
     runs-on: ubuntu-latest

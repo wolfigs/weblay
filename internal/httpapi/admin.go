@@ -15,11 +15,17 @@ func (s *Server) mountAdmin(mux *http.ServeMux) {
 	}
 	fileServer := http.FileServer(http.FS(adminFS))
 
-	mux.HandleFunc("GET /weblay.js", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Cache-Control", "public, max-age=300, stale-while-revalidate=3600")
-		http.ServeFileFS(w, r, web.Connector, "connector/weblay.js")
-	})
+	serveConnector := func(file string) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Access-Control-Allow-Origin", "*")
+			w.Header().Set("Cache-Control", "public, max-age=300, stale-while-revalidate=3600")
+			http.ServeFileFS(w, r, web.Connector, "connector/"+file)
+		}
+	}
+	// weblay.js is the visitor runtime; weblay-editor.js is lazily loaded by it
+	// only when an edit token is present, keeping the visitor payload small.
+	mux.HandleFunc("GET /weblay.js", serveConnector("weblay.js"))
+	mux.HandleFunc("GET /weblay-editor.js", serveConnector("weblay-editor.js"))
 
 	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
 		// The dashboard is a single-page app: serve real files when they

@@ -2,12 +2,22 @@ export interface ElementContent {
   text?: string;
   html?: string;
   attrs?: Record<string, string>;
-  style?: Record<string, string>;
+  style?: Record<string, string>;   // base styles — all screen sizes
+  media?: Record<string, Record<string, string>>; // breakpoint id → styles
 }
 
 export interface Manifest {
   version: number;
   elements: Record<string, ElementContent>;
+}
+
+export interface Revision {
+  id: string;
+  pageId: string;
+  version: number;
+  manifest?: Manifest;
+  publishedBy: string;
+  publishedAt: string;
 }
 
 export interface WeblayConfig {

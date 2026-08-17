@@ -13,9 +13,10 @@
   ],
   "main": "dist/weblay.js",
   "scripts": {
-    "build": "esbuild src/index.ts --bundle --minify --format=iife --target=es2020 --outfile=dist/weblay.js && npm run embed",
-    "embed": "mkdir -p ../web/connector && cp dist/weblay.js ../web/connector/weblay.js",
-    "typecheck": "tsc --noEmit"
+    "build": "esbuild src/index.ts src/editor-entry.ts --bundle --minify --format=iife --target=es2020 --entry-names=[name] --outdir=dist && mv dist/index.js dist/weblay.js && mv dist/editor-entry.js dist/weblay-editor.js && npm run embed",
+    "embed": "mkdir -p ../web/connector && cp dist/weblay.js dist/weblay-editor.js ../web/connector/",
+    "typecheck": "tsc --noEmit",
+    "test": "esbuild test/run.ts --bundle --platform=node --format=cjs --target=node14 --outfile=dist/test.cjs && node dist/test.cjs"
   },
   "devDependencies": {
     "esbuild": "^0.24.0",

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 
 	"github.com/wolfigs/weblay/internal/store"
 )
@@ -47,8 +48,24 @@ func (s *Server) handleManifest(w http.ResponseWriter, r *http.Request) {
 
 	etag := fmt.Sprintf(`"%x"`, sha256.Sum256(body))
 	w.Header().Set("ETag", etag)
-	w.Header().Set("Cache-Control", "public, max-age=30, stale-while-revalidate=300")
+	// Advertise the current version so any caller (SSR/edge, connector) can build
+	// a versioned URL and discover a publish without parsing the body.
+	w.Header().Set("X-Weblay-Version", strconv.Itoa(manifest.Version))
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+
+	// Versioned URLs (?v=N) are immutable when the version matches: a publish
+	// bumps the version, so clients fetch a brand-new URL and never see stale
+	// content. This is the cache-invalidation story — the version is the cache
+	// key. A mismatched (stale) v is served no-cache so the caller self-corrects.
+	switch v := r.URL.Query().Get("v"); {
+	case v != "" && v == strconv.Itoa(manifest.Version):
+		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+	case v != "":
+		w.Header().Set("Cache-Control", "no-cache")
+	default:
+		w.Header().Set("Cache-Control", "public, max-age=30, stale-while-revalidate=300")
+	}
+
 	if r.Header.Get("If-None-Match") == etag {
 		w.WriteHeader(http.StatusNotModified)
 		return

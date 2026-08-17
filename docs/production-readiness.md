@@ -49,11 +49,15 @@ most commonly requested capability.
   **breaks with 2+ instances** (assets live on one node), isn't durable, has
   **no orphan cleanup** (storage leak), and offers no CDN / responsive-image
   generation. Move to S3-compatible object storage + CDN.
-- **SEO.** In pure script-tag mode, edits are swapped **client-side**, so
-  crawlers and social-preview bots see the *un-edited* original text. The
-  Next.js SSR-fetch pattern solves it, but the drop-in promise doesn't. Needs an
-  SSR / edge-inject story (or at least clear docs that content edits need SSR
-  for SEO).
+- **SEO — addressed (edge/SSR mode shipped).** In pure script-tag mode, edits
+  are swapped **client-side**, so crawlers and social-preview bots see the
+  *un-edited* original text. This is now solved at the serving boundary: the
+  `internal/ssr` core applies the manifest to the origin HTML server-side, and
+  the `weblay-edge` reverse proxy (`cmd/weblay-edge`) delivers it with zero app
+  code — crawlers get the edited content in the first byte. Remaining work is
+  breadth, not correctness: package the same core as framework middleware and a
+  CDN worker (see `seo.md`). Pure static with no server/CDN/build hook is still
+  the one case that needs the snapshot export.
 - **Concurrent editing = last-write-wins.** Two editors on the same element
   silently clobber each other. No locking, presence, or conflict detection.
 
@@ -105,4 +109,6 @@ most commonly requested capability.
 3. **SVG / asset-serving XSS + real rate limiting** — closes the obvious holes.
 4. **Layers / tree panel** — unlocks hidden-element editing *and* is the
    foundation for hover-state selection (two gaps, one feature).
-5. **SEO / SSR story** — makes content edits count where they matter.
+5. ~~**SEO / SSR story**~~ — **done**: `internal/ssr` core + `weblay-edge`
+   reverse proxy make content edits crawler-visible. Follow-ups (framework
+   middleware, CDN worker, snapshot export) are additive delivery modes.

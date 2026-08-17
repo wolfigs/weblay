@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 
 	"github.com/wolfigs/weblay/internal/config"
@@ -72,6 +73,15 @@ func (h *harness) do(method, path string, body any, headers ...string) (*http.Re
 	}
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
+	}
+	// Mirror the browser SPA: echo the readable CSRF cookie as a header on unsafe
+	// methods (double-submit).
+	if method != http.MethodGet && method != http.MethodHead {
+		for _, c := range h.client.Jar.Cookies(req.URL) {
+			if c.Name == csrfCookie {
+				req.Header.Set(csrfHeader, c.Value)
+			}
+		}
 	}
 	for i := 0; i+1 < len(headers); i += 2 {
 		req.Header.Set(headers[i], headers[i+1])
@@ -183,6 +193,30 @@ func TestFullEditorialFlow(t *testing.T) {
 	resp.Body.Close()
 	if manifest.Elements[`[data-weblay="hero"]`].Text != "Welcome to Weblay" {
 		t.Fatalf("manifest content = %+v", manifest)
+	}
+	if v := resp.Header.Get("X-Weblay-Version"); v != "1" {
+		t.Fatalf("X-Weblay-Version = %q, want 1", v)
+	}
+
+	// Versioned URL matching the current version is immutable-cacheable.
+	req, _ = http.NewRequest("GET", h.srv.URL+"/m/"+siteKey+"/manifest.json?path=/about&v=1", nil)
+	resp, err = h.client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if cc := resp.Header.Get("Cache-Control"); !strings.Contains(cc, "immutable") {
+		t.Fatalf("versioned (matching) Cache-Control = %q, want immutable", cc)
+	}
+	// A stale version is served no-cache so the caller self-corrects.
+	req, _ = http.NewRequest("GET", h.srv.URL+"/m/"+siteKey+"/manifest.json?path=/about&v=999", nil)
+	resp, err = h.client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if cc := resp.Header.Get("Cache-Control"); cc != "no-cache" {
+		t.Fatalf("versioned (stale) Cache-Control = %q, want no-cache", cc)
 	}
 
 	// Conditional GET returns 304.

@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"errors"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -23,8 +24,10 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"version":     s.version,
-		"needsSetup":  n == 0,
+		"version":    s.version,
+		"needsSetup": n == 0,
+		"brand":      s.cfg.BrandName,   // "Wolfigs"
+		"product":    s.cfg.ProductName, // "Weblay"
 	})
 }
 
@@ -32,6 +35,7 @@ type credentialsBody struct {
 	Email    string `json:"email"`
 	Password string `json:"password"`
 	Name     string `json:"name"`
+	Code     string `json:"code"` // TOTP or recovery code, when 2FA is enabled
 }
 
 // handleSetup creates the first admin account. Only valid while no users exist.
@@ -58,12 +62,15 @@ func (s *Server) handleSetup(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	// The first account is the platform owner: the Wolfigs super admin, with full
+	// control and the ability to appoint other admins.
 	u := &store.User{
 		ID:           store.NewID(),
 		Email:        body.Email,
 		Name:         body.Name,
 		PasswordHash: hash,
-		Role:         "admin",
+		Role:         store.RoleSuperAdmin,
+		Permissions:  store.AllPermissions,
 		CreatedAt:    time.Now().UTC(),
 	}
 	if err := s.st.CreateUser(r.Context(), u); err != nil {
@@ -94,36 +101,88 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "invalid credentials")
 		return
 	}
+	// Second factor, when enabled: a valid TOTP code or a single-use recovery code.
+	if u.TOTPEnabled {
+		if body.Code == "" {
+			writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "two-factor code required", "totpRequired": true})
+			return
+		}
+		if !auth.VerifyTOTP(u.TOTPSecret, body.Code) {
+			if !consumeRecoveryCode(u, body.Code) {
+				writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "incorrect two-factor code", "totpRequired": true})
+				return
+			}
+			// A recovery code was spent — persist the reduced set.
+			_ = s.st.SetTOTP(r.Context(), u.ID, u.TOTPSecret, true, u.RecoveryCodes)
+		}
+	}
 	s.startSession(w, r, u)
 }
 
 func (s *Server) startSession(w http.ResponseWriter, r *http.Request, u *store.User) {
 	token, hash := store.NewToken()
-	if err := s.st.CreateSession(r.Context(), hash, u.ID, time.Now().UTC().Add(sessionTTL)); err != nil {
+	if err := s.st.CreateSession(r.Context(), hash, u.ID, truncate(r.UserAgent(), 300), clientIP(r), time.Now().UTC().Add(sessionTTL)); err != nil {
 		s.internalError(w, err)
 		return
 	}
+	secure := r.TLS != nil || strings.HasPrefix(s.cfg.BaseURL, "https://")
 	http.SetCookie(w, &http.Cookie{
 		Name:     sessionCookie,
 		Value:    token,
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   r.TLS != nil || strings.HasPrefix(s.cfg.BaseURL, "https://"),
+		Secure:   secure,
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   int(sessionTTL.Seconds()),
+	})
+	// CSRF: a random token in a readable (non-HttpOnly) cookie the SPA echoes in
+	// the X-CSRF-Token header on unsafe requests (double-submit). A cross-site
+	// attacker can neither read this cookie nor set the header, so a match proves
+	// same-origin intent.
+	csrf, _ := store.NewToken()
+	http.SetCookie(w, &http.Cookie{
+		Name:     csrfCookie,
+		Value:    csrf,
+		Path:     "/",
+		HttpOnly: false,
+		Secure:   secure,
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   int(sessionTTL.Seconds()),
 	})
 	writeJSON(w, http.StatusOK, u)
 }
 
-// handleLogout deletes the session and clears the cookie.
+// handleLogout deletes the session and clears the cookies.
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	if c, err := r.Cookie(sessionCookie); err == nil && c.Value != "" {
 		_ = s.st.DeleteSession(r.Context(), store.HashToken(c.Value))
 	}
-	http.SetCookie(w, &http.Cookie{
-		Name: sessionCookie, Value: "", Path: "/", HttpOnly: true, MaxAge: -1,
-	})
+	http.SetCookie(w, &http.Cookie{Name: sessionCookie, Value: "", Path: "/", HttpOnly: true, MaxAge: -1})
+	http.SetCookie(w, &http.Cookie{Name: csrfCookie, Value: "", Path: "/", MaxAge: -1})
 	writeJSON(w, http.StatusOK, map[string]string{"status": "signed out"})
+}
+
+func truncate(s string, n int) string {
+	if len(s) > n {
+		return s[:n]
+	}
+	return s
+}
+
+// clientIP extracts the best-effort client IP, honoring a single X-Forwarded-For
+// hop (the edge/proxy) then falling back to RemoteAddr.
+func clientIP(r *http.Request) string {
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		if i := strings.IndexByte(xff, ','); i >= 0 {
+			return strings.TrimSpace(xff[:i])
+		}
+		return strings.TrimSpace(xff)
+	}
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
 }
 
 // handleMe returns the current account.

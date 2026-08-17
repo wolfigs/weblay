@@ -1,6 +1,8 @@
 package httpapi
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -8,9 +10,11 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/wolfigs/weblay/internal/sanitize"
 	"github.com/wolfigs/weblay/internal/store"
 )
 
@@ -47,7 +51,9 @@ func (s *Server) handleEditContentGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	drafts := map[string]*store.ElementContent{}
+	revs := map[string]int{}
 	for _, e := range elems {
+		revs[e.Selector] = e.Rev
 		if e.Draft != nil {
 			drafts[e.Selector] = e.Draft
 		}
@@ -55,6 +61,7 @@ func (s *Server) handleEditContentGet(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"path":             page.Path,
 		"elements":         drafts,
+		"revs":             revs, // per-element optimistic-concurrency tokens
 		"publishedVersion": page.PublishedVersion,
 	})
 }
@@ -62,9 +69,15 @@ func (s *Server) handleEditContentGet(w http.ResponseWriter, r *http.Request) {
 // handleEditContentPut saves a draft for one element.
 func (s *Server) handleEditContentPut(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Path     string                `json:"path"`
-		Selector string                `json:"selector"`
-		Content  *store.ElementContent `json:"content"`
+		Path       string                `json:"path"`
+		Selector   string                `json:"selector"`
+		Content    *store.ElementContent `json:"content"`
+		BaseRev    *int                  `json:"baseRev"` // optimistic-concurrency token; nil = unconditional
+		Descriptor json.RawMessage       `json:"descriptor"`
+		Risk       struct {
+			Confidence int      `json:"confidence"`
+			Reasons    []string `json:"reasons"`
+		} `json:"risk"`
 	}
 	if !readJSON(w, r, &body) {
 		return
@@ -73,16 +86,87 @@ func (s *Server) handleEditContentPut(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "selector and content required")
 		return
 	}
+	// Sanitize before storage — this is an independent trust boundary from the
+	// connector's client-side sanitizer. Stored content is thus always clean.
+	if body.Content.HTML != nil {
+		clean := sanitize.HTML(*body.Content.HTML)
+		body.Content.HTML = &clean
+	}
+	body.Content.Attrs = sanitize.Attrs(body.Content.Attrs)
+	body.Content.Style = sanitize.Style(body.Content.Style)
+	if body.Content.Media != nil {
+		clean := make(map[string]map[string]string, len(body.Content.Media))
+		for bp, styles := range body.Content.Media {
+			// Media keys are px thresholds; reject anything else so generated
+			// @media rules can never contain attacker-controlled text.
+			if n, err := strconv.Atoi(bp); err != nil || n <= 0 || n > 10000 {
+				continue
+			}
+			if s := sanitize.Style(styles); len(s) > 0 {
+				clean[bp] = s
+			}
+		}
+		body.Content.Media = clean
+	}
+
 	page, err := s.st.EnsurePage(r.Context(), siteFrom(r).ID, normalizePath(body.Path))
 	if err != nil {
 		s.internalError(w, err)
 		return
 	}
-	if err := s.st.UpsertDraft(r.Context(), page.ID, body.Selector, body.Content, grantFrom(r).UserID); err != nil {
+	// Optimistic concurrency: when the client sends the base rev it loaded, a
+	// mismatch means another editor changed this element first — reject with 409
+	// and the current rev so the client can reload instead of silently clobbering.
+	baseRev := 0
+	if body.BaseRev != nil {
+		baseRev = *body.BaseRev
+	}
+	newRev, err := s.st.UpsertDraftChecked(r.Context(), page.ID, body.Selector, body.Content, grantFrom(r).UserID, baseRev)
+	if errors.Is(err, store.ErrConflict) {
+		cur := currentRev(r.Context(), s.st, page.ID, body.Selector)
+		writeJSON(w, http.StatusConflict, map[string]any{
+			"error":      "edit conflict: this element changed since you loaded it",
+			"currentRev": cur,
+		})
+		return
+	}
+	if err != nil {
 		s.internalError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"status": "saved"})
+	// Record the binding's identity descriptor + bind-time risk (detection
+	// channel #1). Best-effort: a failure here must not fail the save.
+	if len(body.Descriptor) > 0 || len(body.Risk.Reasons) > 0 || body.Risk.Confidence > 0 {
+		conf := body.Risk.Confidence
+		if conf == 0 {
+			conf = 100
+		}
+		_ = s.st.UpsertBindingDescriptor(r.Context(), &store.BindingHealth{
+			SiteID:     siteFrom(r).ID,
+			PageID:     page.ID,
+			Path:       page.Path,
+			Selector:   body.Selector,
+			Descriptor: string(body.Descriptor),
+			Confidence: conf,
+			Reasons:    body.Risk.Reasons,
+		})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"status": "saved", "rev": newRev})
+}
+
+// currentRev looks up the live rev for an element after a conflict, so the
+// client can rebase onto it. Best-effort: 0 if it can't be read.
+func currentRev(ctx context.Context, st store.Store, pageID, selector string) int {
+	elems, err := st.ElementsForPage(ctx, pageID)
+	if err != nil {
+		return 0
+	}
+	for _, e := range elems {
+		if e.Selector == selector {
+			return e.Rev
+		}
+	}
+	return 0
 }
 
 // handleEditContentDelete removes an element override entirely.
@@ -106,6 +190,7 @@ func (s *Server) handleEditContentDelete(w http.ResponseWriter, r *http.Request)
 		s.internalError(w, err)
 		return
 	}
+	_ = s.st.DeleteBindingHealth(r.Context(), page.ID, selector) // best-effort cleanup
 	writeJSON(w, http.StatusOK, map[string]string{"status": "removed"})
 }
 
@@ -122,12 +207,150 @@ func (s *Server) handleEditPublish(w http.ResponseWriter, r *http.Request) {
 		s.internalError(w, err)
 		return
 	}
+	// Approval gate: a plain editor cannot publish straight to production — their
+	// publish becomes a review request that a site owner/admin approves. Owners
+	// and admins publish directly.
+	if !s.canPublishGrant(r, page.SiteID, grantFrom(r).UserID) {
+		if err := s.st.SubmitReview(r.Context(), page.ID, grantFrom(r).UserID); err != nil {
+			s.internalError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"review": store.ReviewPending, "status": "submitted for approval"})
+		return
+	}
 	rev, err := s.st.PublishPage(r.Context(), page.ID, grantFrom(r).UserID)
 	if err != nil {
 		s.internalError(w, err)
 		return
 	}
+	_ = s.st.ClearReview(r.Context(), page.ID)
 	writeJSON(w, http.StatusOK, map[string]any{"version": rev.Version, "publishedAt": rev.PublishedAt})
+}
+
+// handleEditDiscard reverts the current page's unpublished drafts back to the
+// published state, from the on-site editor.
+func (s *Server) handleEditDiscard(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Path string `json:"path"`
+	}
+	if !readJSON(w, r, &body) {
+		return
+	}
+	page, err := s.st.PageByPath(r.Context(), siteFrom(r).ID, normalizePath(body.Path))
+	if errors.Is(err, store.ErrNotFound) {
+		writeJSON(w, http.StatusOK, map[string]string{"status": "discarded"})
+		return
+	}
+	if err != nil {
+		s.internalError(w, err)
+		return
+	}
+	if err := s.st.DiscardDrafts(r.Context(), page.ID); err != nil {
+		s.internalError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "discarded"})
+}
+
+// handleEditResetElement removes one override entirely and republishes, so the
+// element reverts to its original markup live. Recoverable via version history.
+func (s *Server) handleEditResetElement(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Path     string `json:"path"`
+		Selector string `json:"selector"`
+	}
+	if !readJSON(w, r, &body) {
+		return
+	}
+	if body.Selector == "" {
+		writeError(w, http.StatusBadRequest, "selector required")
+		return
+	}
+	page, err := s.st.PageByPath(r.Context(), siteFrom(r).ID, normalizePath(body.Path))
+	if errors.Is(err, store.ErrNotFound) {
+		writeJSON(w, http.StatusOK, map[string]string{"status": "reset"})
+		return
+	}
+	if err != nil {
+		s.internalError(w, err)
+		return
+	}
+	if err := s.st.DeleteElement(r.Context(), page.ID, body.Selector); err != nil {
+		s.internalError(w, err)
+		return
+	}
+	_ = s.st.DeleteBindingHealth(r.Context(), page.ID, body.Selector)
+	rev, err := s.st.PublishPage(r.Context(), page.ID, grantFrom(r).UserID)
+	if err != nil {
+		s.internalError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"status": "reset", "version": rev.Version})
+}
+
+// handleEditRevisionsList returns published versions for the current page so
+// the on-site editor can show version history.
+func (s *Server) handleEditRevisionsList(w http.ResponseWriter, r *http.Request) {
+	path := normalizePath(r.URL.Query().Get("path"))
+	page, err := s.st.PageByPath(r.Context(), siteFrom(r).ID, path)
+	if errors.Is(err, store.ErrNotFound) {
+		writeJSON(w, http.StatusOK, []any{})
+		return
+	}
+	if err != nil {
+		s.internalError(w, err)
+		return
+	}
+	revs, err := s.st.RevisionsForPage(r.Context(), page.ID)
+	if err != nil {
+		s.internalError(w, err)
+		return
+	}
+	if revs == nil {
+		revs = []*store.Revision{}
+	}
+	writeJSON(w, http.StatusOK, revs)
+}
+
+// revisionForSite loads a revision and confirms it belongs to the granted site.
+func (s *Server) revisionForSite(w http.ResponseWriter, r *http.Request) (*store.Revision, bool) {
+	rev, err := s.st.RevisionByID(r.Context(), r.PathValue("revisionID"))
+	if errors.Is(err, store.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "revision not found")
+		return nil, false
+	}
+	if err != nil {
+		s.internalError(w, err)
+		return nil, false
+	}
+	page, err := s.st.PageByID(r.Context(), rev.PageID)
+	if err != nil || page.SiteID != siteFrom(r).ID {
+		writeError(w, http.StatusNotFound, "revision not found")
+		return nil, false
+	}
+	return rev, true
+}
+
+// handleEditRevisionGet returns one revision's full manifest for read-only view.
+func (s *Server) handleEditRevisionGet(w http.ResponseWriter, r *http.Request) {
+	rev, ok := s.revisionForSite(w, r)
+	if !ok {
+		return
+	}
+	writeJSON(w, http.StatusOK, rev)
+}
+
+// handleEditRevisionRestoreDraft copies a past revision into the page's drafts
+// without publishing, so the editor can review and then publish it.
+func (s *Server) handleEditRevisionRestoreDraft(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.revisionForSite(w, r); !ok {
+		return
+	}
+	if _, err := s.st.RestoreRevisionToDraft(r.Context(), r.PathValue("revisionID"), grantFrom(r).UserID); err != nil {
+		s.internalError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "restored"})
 }
 
 var allowedImageTypes = map[string]string{
@@ -156,6 +379,20 @@ func (s *Server) handleEditUpload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	site := siteFrom(r)
+
+	// Per-site storage quota. Reject early if the site is already at the cap.
+	if s.cfg.MaxSiteStorageBytes > 0 {
+		used, err := s.st.TotalAssetBytesForSite(r.Context(), site.ID)
+		if err != nil {
+			s.internalError(w, err)
+			return
+		}
+		if used >= s.cfg.MaxSiteStorageBytes {
+			writeError(w, http.StatusInsufficientStorage, "site storage quota exceeded")
+			return
+		}
+	}
+
 	assetID := store.NewID()
 	safeName := sanitizeFilename(header.Filename, ext)
 	siteDir := filepath.Join(s.cfg.UploadsDir, site.ID)
@@ -165,17 +402,50 @@ func (s *Server) handleEditUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	diskPath := filepath.Join(siteDir, assetID+ext)
 
+	// SVGs are an XSS vector: reject any carrying active content, and store the
+	// validated bytes. Raster formats stream straight to disk.
+	var svgClean []byte
+	if ext == ".svg" {
+		raw, err := io.ReadAll(file)
+		if err != nil {
+			s.internalError(w, err)
+			return
+		}
+		if svgClean, err = sanitize.SVG(raw); err != nil {
+			writeError(w, http.StatusUnsupportedMediaType, err.Error())
+			return
+		}
+	}
+
 	dst, err := os.OpenFile(diskPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		s.internalError(w, err)
 		return
 	}
-	size, err := io.Copy(dst, file)
+	var size int64
+	if svgClean != nil {
+		var n int
+		n, err = dst.Write(svgClean)
+		size = int64(n)
+	} else {
+		size, err = io.Copy(dst, file)
+	}
 	dst.Close()
 	if err != nil {
 		os.Remove(diskPath)
 		s.internalError(w, err)
 		return
+	}
+
+	// Enforce the quota against the actual written size (the pre-check used the
+	// prior total; this catches a single upload that crosses the cap).
+	if s.cfg.MaxSiteStorageBytes > 0 {
+		used, err := s.st.TotalAssetBytesForSite(r.Context(), site.ID)
+		if err == nil && used+size > s.cfg.MaxSiteStorageBytes {
+			os.Remove(diskPath)
+			writeError(w, http.StatusInsufficientStorage, "site storage quota exceeded")
+			return
+		}
 	}
 
 	asset := &store.Asset{
@@ -211,6 +481,13 @@ func (s *Server) handleAssetServe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+	// Defense in depth: even though SVG uploads are sanitized, serve them under a
+	// locked-down CSP so any file that predates sanitization (or slips through)
+	// cannot execute script or load off-origin resources.
+	if strings.HasSuffix(strings.ToLower(asset.FileName), ".svg") ||
+		strings.HasSuffix(strings.ToLower(asset.DiskPath), ".svg") {
+		w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; sandbox")
+	}
 	http.ServeFile(w, r, asset.DiskPath)
 }
 

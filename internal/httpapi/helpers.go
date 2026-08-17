@@ -2,6 +2,8 @@ package httpapi
 
 import (
 	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -31,6 +33,18 @@ func readJSON(w http.ResponseWriter, r *http.Request, v any) bool {
 		return false
 	}
 	return true
+}
+
+// readJSONOptional decodes a JSON body if one is present, tolerating an empty
+// body (EOF) so handlers with all-optional fields need no body at all. It never
+// writes a response; the caller decides how to handle a malformed body.
+func readJSONOptional(r *http.Request, v any) error {
+	r.Body = http.MaxBytesReader(nil, r.Body, 1<<20)
+	err := json.NewDecoder(r.Body).Decode(v)
+	if errors.Is(err, io.EOF) {
+		return nil
+	}
+	return err
 }
 
 // normalizePath canonicalizes a page path: leading slash, no trailing slash

@@ -8,7 +8,7 @@ import (
 	"github.com/wolfigs/weblay/internal/config"
 )
 
-func testStore(t *testing.T) *Store {
+func testStore(t *testing.T) Store {
 	t.Helper()
 	cfg, err := config.Load(config.Options{DataDir: t.TempDir()})
 	if err != nil {
@@ -22,7 +22,7 @@ func testStore(t *testing.T) *Store {
 	return s
 }
 
-func testUser(t *testing.T, s *Store) *User {
+func testUser(t *testing.T, s Store) *User {
 	t.Helper()
 	u := &User{ID: NewID(), Email: "owner@example.com", Name: "Owner", PasswordHash: "x", Role: "admin", CreatedAt: time.Now().UTC()}
 	if err := s.CreateUser(context.Background(), u); err != nil {
@@ -31,7 +31,7 @@ func testUser(t *testing.T, s *Store) *User {
 	return u
 }
 
-func testSite(t *testing.T, s *Store, owner *User) *Site {
+func testSite(t *testing.T, s Store, owner *User) *Site {
 	t.Helper()
 	site := &Site{ID: NewID(), SiteKey: NewSiteKey(), Name: "Test", CreatedBy: owner.ID, CreatedAt: time.Now().UTC()}
 	if err := s.CreateSite(context.Background(), site); err != nil {
@@ -71,7 +71,7 @@ func TestSessionLifecycle(t *testing.T) {
 	u := testUser(t, s)
 
 	token, hash := NewToken()
-	if err := s.CreateSession(ctx, hash, u.ID, time.Now().UTC().Add(time.Hour)); err != nil {
+	if err := s.CreateSession(ctx, hash, u.ID, "agent", "127.0.0.1", time.Now().UTC().Add(time.Hour)); err != nil {
 		t.Fatal(err)
 	}
 	got, err := s.UserBySession(ctx, HashToken(token))
@@ -81,7 +81,7 @@ func TestSessionLifecycle(t *testing.T) {
 
 	// Expired sessions do not resolve.
 	token2, hash2 := NewToken()
-	_ = s.CreateSession(ctx, hash2, u.ID, time.Now().UTC().Add(-time.Minute))
+	_ = s.CreateSession(ctx, hash2, u.ID, "agent", "127.0.0.1", time.Now().UTC().Add(-time.Minute))
 	if _, err := s.UserBySession(ctx, HashToken(token2)); err != ErrNotFound {
 		t.Errorf("expired session: got %v, want ErrNotFound", err)
 	}

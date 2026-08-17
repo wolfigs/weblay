@@ -9,8 +9,9 @@ import "embed"
 //go:embed admin
 var Admin embed.FS
 
-// Connector holds the built connector script (see connector/ for sources;
-// `make connector` regenerates it).
+// Connector holds the built connector scripts (see connector/ for sources;
+// `make connector` regenerates them). weblay.js is the tiny visitor runtime;
+// weblay-editor.js is the editor UI, lazily loaded only when a token is present.
 //
-//go:embed connector/weblay.js
+//go:embed connector/weblay.js connector/weblay-editor.js
 var Connector embed.FS

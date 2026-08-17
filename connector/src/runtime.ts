@@ -2,9 +2,19 @@
 // and never flash. This is the only code path visitors ever execute.
 
 import type { ElementContent, WeblayConfig, Manifest } from "./types";
+import { sanitizeHTML, isSafeCSSProp, isSafeCSSValue } from "./sanitize";
+import { parseThreshold } from "./breakpoints";
+import { verifyAndReport } from "./telemetry";
+
+const MEDIA_STYLE_ID = "weblay-media";
 
 const HIDE_STYLE_ID = "weblay-antifouc";
-const REVEAL_TIMEOUT_MS = 400;
+// Backstop only: content is normally revealed as soon as the manifest resolves
+// (which always happens, since fetchManifest catches and times out). This just
+// protects against a hung DOMContentLoaded so content is never stuck hidden.
+const REVEAL_TIMEOUT_MS = 6000;
+// Manifest fetch cap: with a remote DB a slow query shouldn't hang the page.
+const FETCH_TIMEOUT_MS = 5000;
 
 // Hide only elements that opted in via data-weblay until overrides land;
 // structural-selector overrides apply too late to hide safely, so they may
@@ -14,8 +24,8 @@ export function guardAgainstFlash(): void {
   const style = document.createElement("style");
   style.id = HIDE_STYLE_ID;
   style.textContent = "[data-weblay]{visibility:hidden !important}";
-  document.head.appendChild(style);
-  setTimeout(reveal, REVEAL_TIMEOUT_MS); // failsafe: never hide content for long
+  (document.head || document.documentElement).appendChild(style);
+  setTimeout(reveal, REVEAL_TIMEOUT_MS); // failsafe: never hide content forever
 }
 
 export function reveal(): void {
@@ -23,32 +33,99 @@ export function reveal(): void {
 }
 
 export async function fetchManifest(cfg: WeblayConfig): Promise<Manifest | null> {
+  const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
+  const timer = ctrl ? setTimeout(() => ctrl.abort(), FETCH_TIMEOUT_MS) : undefined;
   try {
     const url = `${cfg.server}/m/${cfg.siteKey}/manifest.json?path=${encodeURIComponent(cfg.path)}`;
-    const res = await fetch(url);
+    const res = await fetch(url, ctrl ? { signal: ctrl.signal } : undefined);
     if (!res.ok) return null;
     return (await res.json()) as Manifest;
   } catch {
-    return null; // network failure: original markup is the fallback
+    return null; // network failure/timeout: original markup is the fallback
+  } finally {
+    clearTimeout(timer);
   }
 }
 
-export function applyManifest(manifest: Manifest): void {
+export function applyManifest(manifest: Manifest, cfg?: WeblayConfig): void {
   for (const [selector, content] of Object.entries(manifest.elements)) {
     applyContent(selector, content);
   }
+  applyResponsive(manifest.elements);
+  // Verify what actually landed and report coverage (detection channel #3).
+  if (cfg) verifyAndReport(cfg, cfg.path, Object.keys(manifest.elements));
+}
+
+// Build one stylesheet of @media rules from every element's breakpoint buckets.
+// Buckets are keyed by their px threshold; base styles are applied inline (all
+// screens), so these rules carry !important to beat the inline base.
+//
+// Rules are emitted widest-first so that on small screens, where several
+// thresholds match, the narrowest one wins by source order.
+export function applyResponsive(elements: Record<string, ElementContent>): void {
+  // Gather every distinct threshold across all elements, widest first.
+  const thresholds = new Set<number>();
+  for (const content of Object.values(elements)) {
+    for (const key of Object.keys(content.media ?? {})) {
+      const t = parseThreshold(key);
+      if (t !== null) thresholds.add(t);
+    }
+  }
+
+  let css = "";
+  for (const t of [...thresholds].sort((a, b) => b - a)) {
+    let block = "";
+    for (const [selector, content] of Object.entries(elements)) {
+      const styles = content.media?.[String(t)];
+      if (!styles) continue;
+      const decls = responsiveDecls(styles);
+      if (decls) block += `${selector}{${decls}}`;
+    }
+    if (block) css += `@media (max-width:${t}px){${block}}`;
+  }
+  injectStyleSheet(MEDIA_STYLE_ID, css);
+}
+
+function responsiveDecls(styles: Record<string, string>): string {
+  const out: string[] = [];
+  for (const [prop, value] of Object.entries(styles)) {
+    if (!isSafeCSSProp(prop)) continue;
+    // Empty value clears the base at this breakpoint (revert to site CSS).
+    if (value === "") { out.push(`${prop}:unset!important`); continue; }
+    if (isSafeCSSValue(value)) out.push(`${prop}:${value}!important`);
+  }
+  return out.join(";");
+}
+
+function injectStyleSheet(id: string, css: string): void {
+  let el = document.getElementById(id) as HTMLStyleElement | null;
+  if (!css) { el?.remove(); return; }
+  if (!el) {
+    el = document.createElement("style");
+    el.id = id;
+    document.head.appendChild(el);
+  }
+  el.textContent = css;
 }
 
 export function applyContent(selector: string, content: ElementContent): void {
-  let el: Element | null = null;
+  let els: NodeListOf<Element>;
   try {
-    el = document.querySelector(selector);
+    els = document.querySelectorAll(selector);
   } catch {
     return; // stale/invalid selector: skip, never break the page
   }
-  if (!el) return;
+  // Fail-safe: a selector matching multiple elements is ambiguous — applying it
+  // would edit the wrong element(s), so skip. The telemetry pass reports it.
+  if (els.length !== 1) return;
+  const el = els[0];
 
-  if (typeof content.text === "string") {
+  // html wins over text; both are last-writer-wins on the element's contents.
+  // html is re-sanitized here even though it was sanitized on save — the
+  // manifest is untrusted from the runtime's perspective (defense in depth).
+  if (typeof content.html === "string") {
+    el.innerHTML = sanitizeHTML(content.html);
+  } else if (typeof content.text === "string") {
     el.textContent = content.text;
   }
   if (content.attrs) {
@@ -79,26 +156,8 @@ const ATTR_ALLOW = new Set([
 function isSafeAttr(key: string, value: string): boolean {
   const k = key.toLowerCase();
   if (!ATTR_ALLOW.has(k)) return false;
-  if ((k === "href" || k === "src") && /^\s*javascript:/i.test(value)) return false;
+  if ((k === "href" || k === "src") && /^\s*(javascript|data|vbscript):/i.test(value)) return false;
   return true;
-}
-
-// CSS property allowlist: layout-only properties that cannot run scripts or
-// load external resources in ways that could be exploited.
-const CSS_PROP_ALLOW = new Set([
-  "padding", "padding-top", "padding-right", "padding-bottom", "padding-left",
-  "margin", "margin-top", "margin-right", "margin-bottom", "margin-left",
-  "width", "height", "max-width", "max-height", "min-width", "min-height",
-  "object-fit", "object-position",
-]);
-
-function isSafeCSSProp(prop: string): boolean {
-  return CSS_PROP_ALLOW.has(prop.toLowerCase());
-}
-
-// Block values that could load resources or run code (url(), expression(), etc.).
-function isSafeCSSValue(value: string): boolean {
-  return !/url\s*\(|expression\s*\(|javascript\s*:|<|>/i.test(value);
 }
 
 export function normalizePath(p: string): string {

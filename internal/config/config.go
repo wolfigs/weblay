@@ -8,13 +8,15 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // Config is the resolved server configuration.
 type Config struct {
 	Addr    string
 	DataDir string
-	DSN     string // empty means SQLite in DataDir
+	DSN     string // empty means SQLite in DataDir; mongodb[+srv]:// selects Mongo
+	DBName  string // database name for MongoDB (ignored for SQL backends)
 	BaseURL string // public URL of this server, no trailing slash
 
 	// Secret signs nothing directly today (tokens are DB-backed) but is
@@ -22,17 +24,41 @@ type Config struct {
 	// out from under existing deployments.
 	Secret string
 
+	// Brand / product identity. Weblay is the first Wolfigs product; the shared
+	// Wolfigs account is the gateway for all of them (Datalay coming next).
+	BrandName   string // "Wolfigs"
+	ProductName string // "Weblay"
+
+	// SuperAdminEmail is the bootstrap super admin — the one account that always
+	// holds full platform control and can appoint other admins.
+	SuperAdminEmail string
+
 	UploadsDir    string
 	MaxUploadSize int64
+	// MaxSiteStorageBytes caps total uploaded bytes per site (abuse / cost guard).
+	MaxSiteStorageBytes int64
+
+	// DriftCrawl enables the background drift crawler; DriftInterval is how often
+	// it re-checks each site's bindings. Zero interval disables it.
+	DriftInterval time.Duration
 }
 
 // Options are the raw inputs from flags/env before validation.
 type Options struct {
-	Addr    string
-	DataDir string
-	DSN     string
-	BaseURL string
+	Addr            string
+	DataDir         string
+	DSN             string
+	DBName          string
+	BaseURL         string
+	SuperAdminEmail string
+	DriftInterval   time.Duration
 }
+
+// DefaultMongoDB is the MongoDB database used when none is configured.
+const DefaultMongoDB = "weblay-central"
+
+// DefaultSuperAdminEmail is the bootstrap super admin when none is configured.
+const DefaultSuperAdminEmail = "sathnidukottage@gmail.com"
 
 // Load validates options, ensures the data directory exists, and loads or
 // creates the instance secret.
@@ -54,14 +80,30 @@ func Load(opts Options) (*Config, error) {
 		return nil, err
 	}
 
+	dbName := strings.TrimSpace(opts.DBName)
+	if dbName == "" {
+		dbName = DefaultMongoDB
+	}
+
+	superEmail := strings.ToLower(strings.TrimSpace(opts.SuperAdminEmail))
+	if superEmail == "" {
+		superEmail = DefaultSuperAdminEmail
+	}
+
 	return &Config{
 		Addr:          opts.Addr,
 		DataDir:       dataDir,
 		DSN:           opts.DSN,
-		BaseURL:       strings.TrimRight(opts.BaseURL, "/"),
-		Secret:        secret,
-		UploadsDir:    uploadsDir,
-		MaxUploadSize: 10 << 20, // 10 MiB
+		DBName:        dbName,
+		BaseURL:         strings.TrimRight(opts.BaseURL, "/"),
+		Secret:          secret,
+		BrandName:       "Wolfigs",
+		ProductName:     "Weblay",
+		SuperAdminEmail: superEmail,
+		UploadsDir:          uploadsDir,
+		MaxUploadSize:       10 << 20,  // 10 MiB
+		MaxSiteStorageBytes: 500 << 20, // 500 MiB per site
+		DriftInterval:       opts.DriftInterval,
 	}, nil
 }
 

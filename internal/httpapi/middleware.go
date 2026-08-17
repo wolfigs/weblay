@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"crypto/subtle"
 	"errors"
 	"net"
 	"net/http"
@@ -13,15 +14,33 @@ import (
 	"github.com/wolfigs/weblay/internal/store"
 )
 
+func sessionIDFrom(r *http.Request) string {
+	if v, ok := r.Context().Value(ctxSessionID).(string); ok {
+		return v
+	}
+	return ""
+}
+
 type ctxKey int
 
 const (
 	ctxUser ctxKey = iota
 	ctxSite
 	ctxGrant
+	ctxSessionID
 )
 
-const sessionCookie = "weblay_session"
+const (
+	sessionCookie = "weblay_session"
+	csrfCookie    = "weblay_csrf"
+	csrfHeader    = "X-CSRF-Token"
+)
+
+// safeMethod reports whether an HTTP method is non-mutating (and thus exempt
+// from CSRF checks).
+func safeMethod(m string) bool {
+	return m == http.MethodGet || m == http.MethodHead || m == http.MethodOptions
+}
 
 // securityHeaders applies baseline hardening to every response.
 func (s *Server) securityHeaders(next http.Handler) http.Handler {
@@ -42,7 +61,8 @@ func (s *Server) publicCORS(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-// withUser requires a valid dashboard session cookie.
+// withUser requires a valid dashboard session cookie, and enforces CSRF
+// (double-submit token) on state-changing requests.
 func (s *Server) withUser(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		c, err := r.Cookie(sessionCookie)
@@ -50,13 +70,31 @@ func (s *Server) withUser(next http.HandlerFunc) http.HandlerFunc {
 			writeError(w, http.StatusUnauthorized, "not signed in")
 			return
 		}
-		u, err := s.st.UserBySession(r.Context(), store.HashToken(c.Value))
+		if !safeMethod(r.Method) && !s.csrfOK(r) {
+			writeError(w, http.StatusForbidden, "invalid or missing CSRF token")
+			return
+		}
+		sessionID := store.HashToken(c.Value)
+		u, err := s.st.UserBySession(r.Context(), sessionID)
 		if err != nil {
 			writeError(w, http.StatusUnauthorized, "session expired")
 			return
 		}
-		next(w, r.WithContext(context.WithValue(r.Context(), ctxUser, u)))
+		ctx := context.WithValue(r.Context(), ctxUser, u)
+		ctx = context.WithValue(ctx, ctxSessionID, sessionID)
+		next(w, r.WithContext(ctx))
 	}
+}
+
+// csrfOK validates the double-submit token: the X-CSRF-Token header must match
+// the readable CSRF cookie. A cross-site attacker can set neither.
+func (s *Server) csrfOK(r *http.Request) bool {
+	cookie, err := r.Cookie(csrfCookie)
+	if err != nil || cookie.Value == "" {
+		return false
+	}
+	header := r.Header.Get(csrfHeader)
+	return header != "" && subtle.ConstantTimeCompare([]byte(header), []byte(cookie.Value)) == 1
 }
 
 // withSite requires a session and membership of the {siteID} path parameter.
@@ -82,6 +120,29 @@ func (s *Server) withSite(next http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 		next(w, r.WithContext(context.WithValue(r.Context(), ctxSite, site)))
+	})
+}
+
+// withSuperAdmin requires the caller to be the Wolfigs super admin.
+func (s *Server) withSuperAdmin(next http.HandlerFunc) http.HandlerFunc {
+	return s.withUser(func(w http.ResponseWriter, r *http.Request) {
+		if !userFrom(r).IsSuperAdmin() {
+			writeError(w, http.StatusForbidden, "super-admin access required")
+			return
+		}
+		next(w, r)
+	})
+}
+
+// withPermission requires the caller to hold a specific platform permission (the
+// super admin passes every check).
+func (s *Server) withPermission(perm string, next http.HandlerFunc) http.HandlerFunc {
+	return s.withUser(func(w http.ResponseWriter, r *http.Request) {
+		if !userFrom(r).Can(perm) {
+			writeError(w, http.StatusForbidden, "insufficient permissions")
+			return
+		}
+		next(w, r)
 	})
 }
 
@@ -163,11 +224,18 @@ func newRateLimiter() *rateLimiter {
 }
 
 func (rl *rateLimiter) allow(ip string) bool {
+	return rl.allowN("ip:"+ip, rateMax, rateWindow)
+}
+
+// allowN is a fixed-window limiter for an arbitrary key (per-IP, per-site, …)
+// with a caller-chosen ceiling and window. Returns false once the key exceeds
+// max requests within the current window.
+func (rl *rateLimiter) allowN(key string, max int, dur time.Duration) bool {
 	rl.mu.Lock()
 	defer rl.mu.Unlock()
 	now := time.Now()
-	wdw, ok := rl.windows[ip]
-	if !ok || now.Sub(wdw.start) > rateWindow {
+	wdw, ok := rl.windows[key]
+	if !ok || now.Sub(wdw.start) > dur {
 		// Opportunistically drop stale windows so the map doesn't grow forever.
 		if len(rl.windows) > 10000 {
 			for k, v := range rl.windows {
@@ -176,11 +244,30 @@ func (rl *rateLimiter) allow(ip string) bool {
 				}
 			}
 		}
-		rl.windows[ip] = &window{start: now, count: 1}
+		rl.windows[key] = &window{start: now, count: 1}
 		return true
 	}
 	wdw.count++
-	return wdw.count <= rateMax
+	return wdw.count <= max
+}
+
+// Per-site write ceilings (fixed window = rateWindow). Draft saves are chatty
+// (debounced keystrokes), so that ceiling is generous; uploads are heavier.
+const (
+	rateDraftMax  = 300 // draft content saves per site per minute
+	rateUploadMax = 60  // asset uploads per site per minute
+)
+
+// rateLimitSite throttles per site. Compose it INSIDE withEditGrant/withSite so
+// the site is already in the request context.
+func (s *Server) rateLimitSite(max int, next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !s.limiter.allowN("site:"+siteFrom(r).ID, max, rateWindow) {
+			writeError(w, http.StatusTooManyRequests, "too many requests for this site, slow down")
+			return
+		}
+		next(w, r)
+	}
 }
 
 func (s *Server) rateLimit(next http.HandlerFunc) http.HandlerFunc {

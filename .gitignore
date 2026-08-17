@@ -1,7 +1,10 @@
 bin/
 inlay-data/
+weblay-data/
 connector/node_modules/
 connector/dist/
+e2e/node_modules/
+e2e/test-results/
 *.db
 *.db-wal
 *.db-shm

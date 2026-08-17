@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -51,9 +52,15 @@ Usage:
 
 Flags for serve:
   -addr string    Listen address (default ":8787", env WEBLAY_ADDR)
-  -data string    Data directory for SQLite DB and uploads (default "./weblay-data", env WEBLAY_DATA)
-  -dsn string     Postgres DSN; when set, Postgres is used instead of SQLite (env WEBLAY_DSN)
+  -data string    Data directory for uploads + SQLite DB (default "./weblay-data", env WEBLAY_DATA)
+  -dsn string     Database DSN (env WEBLAY_DSN). Selects the backend:
+                    empty                 → embedded SQLite (default)
+                    postgres://…          → PostgreSQL
+                    mongodb://… or
+                    mongodb+srv://…       → MongoDB
+  -db string      MongoDB database name (default "weblay-central", env WEBLAY_DB)
   -base string    Public base URL of this server, e.g. https://edit.example.com (env WEBLAY_BASE_URL)
+  -crawl int      Drift crawler interval in minutes (default 10, 0 = off, env WEBLAY_CRAWL)
 `)
 }
 
@@ -61,8 +68,13 @@ func serve(args []string) error {
 	fs := flag.NewFlagSet("serve", flag.ExitOnError)
 	addr := fs.String("addr", envOr("WEBLAY_ADDR", ":8787"), "listen address")
 	dataDir := fs.String("data", envOr("WEBLAY_DATA", "./weblay-data"), "data directory")
-	dsn := fs.String("dsn", os.Getenv("WEBLAY_DSN"), "postgres DSN (optional)")
+	dsn := fs.String("dsn", os.Getenv("WEBLAY_DSN"), "database DSN (postgres or mongodb; empty = SQLite)")
+	dbName := fs.String("db", os.Getenv("WEBLAY_DB"), "MongoDB database name (default weblay-central)")
 	baseURL := fs.String("base", os.Getenv("WEBLAY_BASE_URL"), "public base URL")
+	superAdmin := fs.String("super-admin", os.Getenv("WEBLAY_SUPER_ADMIN"), "super-admin email (default sathnidukottage@gmail.com)")
+	// Drift detection runs by default so edits are checked without any manual
+	// step; set WEBLAY_CRAWL=0 to disable the background crawler.
+	crawlMin := fs.Int("crawl", envInt("WEBLAY_CRAWL", 10), "drift crawler interval (minutes; 0 = off)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -70,10 +82,13 @@ func serve(args []string) error {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 
 	cfg, err := config.Load(config.Options{
-		Addr:    *addr,
-		DataDir: *dataDir,
-		DSN:     *dsn,
-		BaseURL: *baseURL,
+		Addr:          *addr,
+		DataDir:       *dataDir,
+		DSN:             *dsn,
+		DBName:          *dbName,
+		BaseURL:         *baseURL,
+		SuperAdminEmail: *superAdmin,
+		DriftInterval:   time.Duration(*crawlMin) * time.Minute,
 	})
 	if err != nil {
 		return err
@@ -119,6 +134,15 @@ func serve(args []string) error {
 func envOr(key, fallback string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
+	}
+	return fallback
+}
+
+func envInt(key string, fallback int) int {
+	if v := os.Getenv(key); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			return n
+		}
 	}
 	return fallback
 }

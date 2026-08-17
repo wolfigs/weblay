@@ -86,9 +86,10 @@ func serve(args []string) error {
 		DataDir:       *dataDir,
 		DSN:             *dsn,
 		DBName:          *dbName,
-		BaseURL:         *baseURL,
-		SuperAdminEmail: *superAdmin,
-		DriftInterval:   time.Duration(*crawlMin) * time.Minute,
+		BaseURL:            *baseURL,
+		SuperAdminEmail:    *superAdmin,
+		SuperAdminPassword: os.Getenv("WEBLAY_SUPER_ADMIN_PASSWORD"),
+		DriftInterval:      time.Duration(*crawlMin) * time.Minute,
 	})
 	if err != nil {
 		return err

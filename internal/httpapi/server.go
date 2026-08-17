@@ -5,11 +5,13 @@ package httpapi
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"net/http"
 	"sync"
 	"time"
 
+	"github.com/wolfigs/weblay/internal/auth"
 	"github.com/wolfigs/weblay/internal/config"
 	"github.com/wolfigs/weblay/internal/drift"
 	"github.com/wolfigs/weblay/internal/store"
@@ -123,14 +125,9 @@ func New(cfg *config.Config, st store.Store, log *slog.Logger, version string) h
 	// Embedded admin dashboard + connector script at the root.
 	s.mountAdmin(mux)
 
-	// Guarantee the configured Wolfigs super admin always holds full control
-	// (best-effort; a fresh install has no accounts yet and setup creates it).
+	// Guarantee the configured Wolfigs super admin exists and holds full control.
 	if cfg.SuperAdminEmail != "" {
-		if promoted, err := st.EnsureSuperAdmin(context.Background(), cfg.SuperAdminEmail); err != nil {
-			log.Warn("super-admin bootstrap failed", "email", cfg.SuperAdminEmail, "err", err)
-		} else if promoted {
-			log.Info("promoted account to super admin", "email", cfg.SuperAdminEmail)
-		}
+		s.bootstrapSuperAdmin(context.Background())
 	}
 
 	go s.pruneLoop()
@@ -139,6 +136,44 @@ func New(cfg *config.Config, st store.Store, log *slog.Logger, version string) h
 	}
 
 	return s.securityHeaders(s.instrument(mux))
+}
+
+// bootstrapSuperAdmin guarantees the configured Wolfigs super-admin account:
+// promotes it if it already exists, or creates it when a password is supplied
+// via WEBLAY_SUPER_ADMIN_PASSWORD. The password is never defaulted or logged.
+func (s *Server) bootstrapSuperAdmin(ctx context.Context) {
+	email := s.cfg.SuperAdminEmail
+	_, err := s.st.UserByEmail(ctx, email)
+	switch {
+	case err == nil:
+		if promoted, e := s.st.EnsureSuperAdmin(ctx, email); e != nil {
+			s.log.Warn("super-admin promote failed", "email", email, "err", e)
+		} else if promoted {
+			s.log.Info("promoted existing account to super admin", "email", email)
+		}
+	case errors.Is(err, store.ErrNotFound):
+		if s.cfg.SuperAdminPassword == "" {
+			s.log.Info("super-admin account absent; set WEBLAY_SUPER_ADMIN_PASSWORD to auto-create it, or complete first-run setup", "email", email)
+			return
+		}
+		hash, e := auth.HashPassword(s.cfg.SuperAdminPassword)
+		if e != nil {
+			s.log.Warn("super-admin create failed (invalid password)", "err", e)
+			return
+		}
+		u := &store.User{
+			ID: store.NewID(), Email: email, Name: "Super Admin", PasswordHash: hash,
+			Role: store.RoleSuperAdmin, Permissions: store.AllPermissions,
+			EmailVerified: true, CreatedAt: time.Now().UTC(),
+		}
+		if e := s.st.CreateUser(ctx, u); e != nil {
+			s.log.Warn("super-admin create failed", "email", email, "err", e)
+			return
+		}
+		s.log.Info("created Wolfigs super-admin account", "email", email)
+	default:
+		s.log.Warn("super-admin bootstrap lookup failed", "email", email, "err", err)
+	}
 }
 
 // triggerCrawl launches a background crawl of one site unless a recent trigger

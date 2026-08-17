@@ -32,6 +32,9 @@ type Config struct {
 	// SuperAdminEmail is the bootstrap super admin — the one account that always
 	// holds full platform control and can appoint other admins.
 	SuperAdminEmail string
+	// SuperAdminPassword, when set (env WEBLAY_SUPER_ADMIN_PASSWORD), creates the
+	// super-admin account on startup if it does not exist yet. Never defaulted.
+	SuperAdminPassword string
 
 	UploadsDir    string
 	MaxUploadSize int64
@@ -49,9 +52,10 @@ type Options struct {
 	DataDir         string
 	DSN             string
 	DBName          string
-	BaseURL         string
-	SuperAdminEmail string
-	DriftInterval   time.Duration
+	BaseURL            string
+	SuperAdminEmail    string
+	SuperAdminPassword string
+	DriftInterval      time.Duration
 }
 
 // DefaultMongoDB is the MongoDB database used when none is configured.
@@ -97,9 +101,10 @@ func Load(opts Options) (*Config, error) {
 		DBName:        dbName,
 		BaseURL:         strings.TrimRight(opts.BaseURL, "/"),
 		Secret:          secret,
-		BrandName:       "Wolfigs",
-		ProductName:     "Weblay",
-		SuperAdminEmail: superEmail,
+		BrandName:          "Wolfigs",
+		ProductName:        "Weblay",
+		SuperAdminEmail:    superEmail,
+		SuperAdminPassword: opts.SuperAdminPassword,
 		UploadsDir:          uploadsDir,
 		MaxUploadSize:       10 << 20,  // 10 MiB
 		MaxSiteStorageBytes: 500 << 20, // 500 MiB per site

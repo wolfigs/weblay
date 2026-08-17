@@ -62,10 +62,21 @@ func (s *sqlStore) CreateSite(ctx context.Context, site *Site) error {
 
 // SitesForUser lists sites the user is a member of.
 func (s *sqlStore) SitesForUser(ctx context.Context, userID string) ([]*Site, error) {
-	rows, err := s.query(ctx,
+	return s.sitesFrom(ctx,
 		`SELECT st.id, st.site_key, st.name, st.created_by, st.created_at
 		 FROM sites st JOIN site_members m ON m.site_id = st.id
 		 WHERE m.user_id = ? ORDER BY st.created_at`, userID)
+}
+
+// AllSites lists every site on the platform — for the Wolfigs admin panel, where
+// the super admin (and admins with manage_sites) oversee all websites.
+func (s *sqlStore) AllSites(ctx context.Context) ([]*Site, error) {
+	return s.sitesFrom(ctx,
+		`SELECT id, site_key, name, created_by, created_at FROM sites ORDER BY created_at`)
+}
+
+func (s *sqlStore) sitesFrom(ctx context.Context, query string, args ...any) ([]*Site, error) {
+	rows, err := s.query(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}

@@ -76,6 +76,7 @@ func New(cfg *config.Config, st store.Store, log *slog.Logger, version string) h
 	// Wolfigs platform admin panel: super admin manages accounts + admin roles.
 	mux.HandleFunc("GET /api/v1/admin/overview", s.withPermission(store.PermManageUsers, s.handleAdminOverview))
 	mux.HandleFunc("GET /api/v1/admin/users", s.withPermission(store.PermManageUsers, s.handleAdminUsersList))
+	mux.HandleFunc("GET /api/v1/admin/sites", s.withPermission(store.PermManageSites, s.handleAdminSitesList))
 	mux.HandleFunc("POST /api/v1/admin/users", s.withPermission(store.PermManageUsers, s.handleAdminUserCreate))
 	mux.HandleFunc("PATCH /api/v1/admin/users/{userID}", s.withSuperAdmin(s.handleAdminUserUpdate))
 	mux.HandleFunc("DELETE /api/v1/admin/users/{userID}", s.withSuperAdmin(s.handleAdminUserDelete))

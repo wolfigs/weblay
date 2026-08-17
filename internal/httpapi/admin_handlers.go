@@ -30,15 +30,55 @@ func (s *Server) handleAdminOverview(w http.ResponseWriter, r *http.Request) {
 			admins++
 		}
 	}
+	totalSites := 0
+	if sites, err := s.st.AllSites(r.Context()); err == nil {
+		totalSites = len(sites)
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"brand":       s.cfg.BrandName,
 		"product":     s.cfg.ProductName,
 		"totalUsers":  len(users),
 		"admins":      admins,
 		"superAdmins": supers,
+		"totalSites":  totalSites,
 		"permissions": store.AllPermissions,
 		"roles":       []string{store.RoleSuperAdmin, store.RoleAdmin, store.RoleMember},
 	})
+}
+
+// handleAdminSitesList returns every website on the platform (super admin /
+// manage_sites), each with its health-issue count, for the admin panel's site
+// oversight view.
+func (s *Server) handleAdminSitesList(w http.ResponseWriter, r *http.Request) {
+	sites, err := s.st.AllSites(r.Context())
+	if err != nil {
+		s.internalError(w, err)
+		return
+	}
+	ids := make([]string, len(sites))
+	for i, st := range sites {
+		ids[i] = st.ID
+	}
+	issues, _ := s.st.IssueCountsForSites(r.Context(), ids)
+
+	// Resolve owner emails (best-effort) so the admin sees who owns each site.
+	ownerEmail := map[string]string{}
+	out := make([]map[string]any, len(sites))
+	for i, st := range sites {
+		email := ownerEmail[st.CreatedBy]
+		if email == "" {
+			if u, err := s.st.UserByID(r.Context(), st.CreatedBy); err == nil {
+				email = u.Email
+				ownerEmail[st.CreatedBy] = email
+			}
+		}
+		out[i] = map[string]any{
+			"id": st.ID, "siteKey": st.SiteKey, "name": st.Name,
+			"createdBy": st.CreatedBy, "ownerEmail": email, "createdAt": st.CreatedAt,
+			"origins": st.Origins, "issues": issues[st.ID],
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"sites": out})
 }
 
 // handleAdminUsersList lists every account. Requires manage_users.

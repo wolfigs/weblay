@@ -456,6 +456,22 @@ func (s *mongoStore) SitesForUser(ctx context.Context, userID string) ([]*Site, 
 	return sites, nil
 }
 
+func (s *mongoStore) AllSites(ctx context.Context) ([]*Site, error) {
+	cur, err := s.col(colSites).Find(ctx, bson.M{}, options.Find().SetSort(bson.D{{Key: "created_at", Value: 1}}))
+	if err != nil {
+		return nil, err
+	}
+	var docs []mSite
+	if err := cur.All(ctx, &docs); err != nil {
+		return nil, err
+	}
+	sites := make([]*Site, 0, len(docs))
+	for _, d := range docs {
+		sites = append(sites, d.toSite())
+	}
+	return sites, nil
+}
+
 func (s *mongoStore) AllSiteIDs(ctx context.Context) ([]string, error) {
 	cur, err := s.col(colSites).Find(ctx, bson.M{}, options.Find().SetProjection(bson.M{"_id": 1}))
 	if err != nil {

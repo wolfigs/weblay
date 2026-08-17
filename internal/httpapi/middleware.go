@@ -115,7 +115,9 @@ func (s *Server) withSite(next http.HandlerFunc) http.HandlerFunc {
 			s.internalError(w, err)
 			return
 		}
-		if !ok {
+		// Platform admins with site oversight can open any site, even without
+		// membership — this is what powers the admin panel's website management.
+		if !ok && !u.Can(store.PermManageSites) {
 			writeError(w, http.StatusForbidden, "not a member of this site")
 			return
 		}

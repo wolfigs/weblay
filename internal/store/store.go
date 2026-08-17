@@ -56,6 +56,7 @@ type Store interface {
 	// Sites, members, origins
 	CreateSite(ctx context.Context, site *Site) error
 	SitesForUser(ctx context.Context, userID string) ([]*Site, error)
+	AllSites(ctx context.Context) ([]*Site, error)
 	AllSiteIDs(ctx context.Context) ([]string, error)
 	SiteByID(ctx context.Context, id string) (*Site, error)
 	SiteByKey(ctx context.Context, key string) (*Site, error)

@@ -797,17 +797,30 @@ async function viewAdmin(me) {
   render(h(`${topnav(me, [{ label: "Admin" }])}<main class="view">${skeletonGrid()}</main>`));
   wireShell();
 
-  let overview, data;
+  const canManageSites = me.role === "super_admin" || (me.permissions || []).includes("manage_sites");
+
+  let overview, data, siteData = { sites: [] };
   try {
-    [overview, data] = await Promise.all([
-      api("GET", "/api/v1/admin/overview"),
-      api("GET", "/api/v1/admin/users"),
-    ]);
+    const reqs = [api("GET", "/api/v1/admin/overview"), api("GET", "/api/v1/admin/users")];
+    if (canManageSites) reqs.push(api("GET", "/api/v1/admin/sites"));
+    const results = await Promise.all(reqs);
+    [overview, data] = results;
+    if (canManageSites) siteData = results[2];
   } catch (err) { return showError(err); }
 
   const isSuper = me.role === "super_admin";
   const users = data.users || [];
+  const sites = siteData.sites || [];
   const perms = overview.permissions || [];
+
+  const siteRows = sites.map((st) => `
+    <tr>
+      <td><div class="u-name">${esc(st.name)}</div><div class="u-email mono">${esc(st.siteKey)}</div></td>
+      <td>${esc(st.ownerEmail || st.createdBy || "—")}</td>
+      <td>${(st.origins || []).length} origin${(st.origins || []).length === 1 ? "" : "s"}</td>
+      <td>${st.issues > 0 ? `<span class="badge warn">${st.issues} to fix</span>` : `<span class="badge">healthy</span>`}</td>
+      <td class="right"><a class="btn btn-ghost sm" href="#/sites/${st.id}">Open</a></td>
+    </tr>`).join("");
 
   const rows = users.map((u) => `
     <tr>
@@ -837,11 +850,19 @@ async function viewAdmin(me) {
         ${isSuper ? `<button class="btn btn-primary" id="add-admin-btn">${ICON.plus} Add account</button>` : ""}
       </div>
 
-      <div class="grid stagger" style="grid-template-columns:repeat(3,1fr)">
+      <div class="grid stagger" style="grid-template-columns:repeat(4,1fr)">
         <div class="card"><div class="card-pad"><div class="stat"><div class="stat-n">${overview.totalUsers}</div><div class="stat-l">Accounts</div></div></div></div>
         <div class="card"><div class="card-pad"><div class="stat"><div class="stat-n">${overview.admins}</div><div class="stat-l">Admins</div></div></div></div>
         <div class="card"><div class="card-pad"><div class="stat"><div class="stat-n">${overview.superAdmins}</div><div class="stat-l">Super admins</div></div></div></div>
+        <div class="card"><div class="card-pad"><div class="stat"><div class="stat-n">${overview.totalSites ?? 0}</div><div class="stat-l">Websites</div></div></div></div>
       </div>
+
+      ${canManageSites ? `
+      <div class="section-title"><h2>Websites</h2><span class="muted">every site on the platform</span></div>
+      <div class="card"><div class="table-wrap"><table class="tbl">
+        <thead><tr><th>Site</th><th>Owner</th><th>Origins</th><th>Health</th><th class="right"></th></tr></thead>
+        <tbody>${siteRows || `<tr><td colspan="5" class="muted">No sites yet.</td></tr>`}</tbody>
+      </table></div></div>` : ""}
 
       <div class="section-title"><h2>Accounts</h2></div>
       <div class="card"><div class="table-wrap"><table class="tbl">
